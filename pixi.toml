@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "fv-orca-hand-rl"
 description = "RL training for the ORCA dexterous hand (in-hand cube reorientation)."
 channels = ["conda-forge"]
