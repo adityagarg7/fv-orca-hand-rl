@@ -1,126 +1,151 @@
-# ORCA Hand — In-Hand Cube Reorientation (Four Vectors)
+# ORCA Hand — Reinforcement Learning
 
-PPO training for in-hand cube reorientation on the ORCA hand, using a shaped
-"production" reward that fixes the flick-and-pray reward-hacking exploit.
+Reinforcement-learning training and research for the ORCA dexterous hand at Four Vectors.
 
-This repo is set up so two people can collaborate cleanly:
+This repository is the shared home for RL work on the ORCA hand. The first task
+implemented here is **in-hand cube reorientation**, trained with PPO and a shaped
+"production" reward that eliminates the flick-and-pray reward-hacking exploit. The
+repository is structured to host additional manipulation tasks as the work expands.
 
-| What | Where it lives |
+---
+
+## How the project is organized
+
+| Artifact | Where it lives |
 | --- | --- |
-| Code (scripts, reward function, notebook) | **this Git repo** |
-| Training metrics / curves | **Weights & Biases** (auto-synced) |
-| Trained models & checkpoints | **W&B artifacts** (not committed to git) |
-| The `orca_sim` environment | a **dependency** (installed via `requirements.txt`), not vendored here |
+| Code (training scripts, reward wrappers, notebooks) | this Git repository |
+| Training metrics and curves | Weights & Biases (auto-synced from TensorBoard) |
+| Trained models and checkpoints | W&B artifacts (never committed to Git) |
+| The `orca_sim` environment | an installed dependency (`requirements.txt`), not vendored here |
 
-The rule of thumb: **code goes in git, everything a run produces goes in W&B.**
-Git stays small and diffable; nobody emails zip files around.
+Guiding principle: **code lives in Git; everything a run produces lives in W&B.**
+This keeps the repository small and reviewable, and removes any need to pass model
+or log files around by hand.
 
 ---
 
 ## Repository contents
 
-- `train.py` — PPO training with W&B logging. Step count and other knobs are
-  CLI flags, so you never edit the file for a quick test.
-- `production_reward.py` — the reward wrapper (exponential alignment kernel,
-  success bonus, stable-grasp hold constraint, action regularisation).
-- `render_policy.py` — load a model and watch it in the MuJoCo viewer.
-- `colab_train.ipynb` — run training on Colab (clones this repo, logs to W&B).
+- `train.py` — PPO training entrypoint with W&B logging. Run length and other
+  hyperparameters are command-line flags, so no file edits are needed for quick
+  experiments.
+- `production_reward.py` — the reward wrapper for the cube-reorientation task
+  (exponential alignment kernel, terminal success bonus, stable-grasp hold
+  constraint, action regularisation).
+- `render_policy.py` — load a trained model and inspect its behaviour in the
+  MuJoCo viewer.
+- `colab_train.ipynb` — run training on Google Colab (clones this repo, logs to W&B).
 - `requirements.txt`, `.gitignore`.
 
 ---
 
-## One-time setup
+## Getting started
 
-### 1. Create the private repo and add your collaborator
-On GitHub: **New repository → Private**, owned by the Four Vectors org (or your
-account). Then **Settings → Collaborators** and invite Siddhant. Push this
-scaffold to it:
+### Prerequisites
+- Access to this private repository (request from a repository admin).
+- Membership in the Four Vectors Weights & Biases team (request from a W&B admin).
+- Python 3.11. Conda is recommended, matching the `orca_sim` documentation.
 
+### 1. Clone the repository
 ```bash
-cd ~/Documents/fourvectors/fv_orca_hand_rl
-git init
-git add -A
-git commit -m "Initial scaffold: W&B training, production reward, Colab"
-git branch -M main
-git remote add origin https://github.com/<owner>/fv-orca-hand-rl.git
-git push -u origin main
+git clone https://github.com/adityagarg7/fv-orca-hand-rl.git
+cd fv-orca-hand-rl
 ```
 
-### 2. Set up Weights & Biases
-- Create an account at https://wandb.ai (free), and a **Team** so you and
-  Siddhant share one workspace.
-- Grab your API key from https://wandb.ai/authorize.
-
-### 3. Local environment (your own machine)
-Use conda (matches the `orca_sim` docs) or a venv with Python 3.11:
-
+### 2. Create the environment and install dependencies
 ```bash
 conda create -n orca python=3.11 -y
 conda activate orca
-pip install -r requirements.txt   # installs orca_sim from source too
-wandb login                       # paste your API key once
+pip install -r requirements.txt   # also installs orca_sim from source
+```
+
+### 3. Authenticate with Weights & Biases
+Generate a personal API key at https://wandb.ai/authorize, then log in once
+(the key is stored in `~/.netrc`):
+```bash
+wandb login
+```
+
+### 4. Set your commit identity
+Make sure commits are attributed to your own GitHub account. Using the no-reply
+address from your GitHub email settings keeps your real address private:
+```bash
+git config user.name "Your Name"
+git config user.email "ID+username@users.noreply.github.com"
 ```
 
 ---
 
-## Daily workflow
+## Usage
 
-### Git loop
-```bash
-git pull                          # always start by pulling the latest
-# ... edit reward / scripts ...
-git add -A
-git commit -m "Tweak success bonus to 300"
-git push
-```
-For anything experimental (e.g. trying a new reward shape), work on a **branch**
-and open a Pull Request so you don't clobber each other:
-```bash
-git checkout -b experiment/higher-success-bonus
-# ...commit, push...
-git push -u origin experiment/higher-success-bonus
-# then open a PR on GitHub
-```
-
-### Train (locally)
+### Training locally
 ```bash
 python train.py --timesteps 20000 --run-name smoke-test     # quick sanity check
 python train.py --timesteps 20000000 --run-name prod-20M    # full run
 ```
-Metrics stream to W&B live; the final model is logged as `model-<run_id>`.
-Note the reward already reaches ~53% success around 500k steps, so you rarely
-need the full 20M.
+Metrics stream to W&B in real time, and the final model is logged as a versioned
+artifact named `model-<run_id>`. For reference, the cube-reorientation reward
+reaches roughly 53% success by ~500k steps, so the full 20M run is rarely
+necessary. Pass `--project <name>` to log a different task to its own W&B project,
+or `--entity <team>` to target the shared team workspace.
 
-### Train (on Colab)
-Open `colab_train.ipynb`. It uses **Colab Secrets** for credentials — see the
-notebook's first cell. Full 20M runs are better done locally (free Colab
-disconnects); Colab is best for quick experiments.
+### Training on Colab
+Open `colab_train.ipynb`. Credentials are read from Colab Secrets (a GitHub
+access token and a W&B API key) — see the notebook's first cell. Colab is best
+suited to short experiments; long runs should be done locally, as free Colab
+sessions disconnect.
 
-### Compare runs
-Open your project at https://wandb.ai — select any runs to overlay their
-success-rate / reward curves. (This replaces the old `plot_comparison.py`.)
+### Comparing runs
+Open the project in the W&B workspace and select any runs to overlay their
+success-rate and reward curves.
 
-### Pull a trained model
-Anyone on the team can fetch a model another person trained:
+### Retrieving a trained model
+Any team member can pull a model trained by someone else:
 ```python
 import wandb
 api = wandb.Api()
 art = api.artifact("<entity>/<project>/model-<run_id>:latest", type="model")
-path = art.download()   # the .zip lands in `path`
+path = art.download()   # the .zip is downloaded to `path`
 ```
 
-### Render a policy
+### Rendering a policy
 ```bash
 python render_policy.py path/to/model.zip      # Linux
-mjpython render_policy.py path/to/model.zip     # macOS only
+mjpython render_policy.py path/to/model.zip    # macOS
 ```
 
 ---
 
-## Notes
-- `train.py` uses `device="cpu"` by default — correct for this MLP policy on
-  low-dim observations (the GPU doesn't help and is often slower). Pass
-  `--device cuda` only if you want to experiment.
-- Models, checkpoints, and TensorBoard/W&B logs are gitignored on purpose.
-- For fully reproducible runs, pin a specific `orca_sim` commit in
-  `requirements.txt` (see the comment in that file).
+## Contributing
+
+Always pull before starting work:
+```bash
+git pull
+```
+Routine changes can go directly on `main`. For anything experimental — a new
+reward shape, a hyperparameter sweep, or a new task — use a feature branch and
+open a pull request for review:
+```bash
+git checkout -b experiment/<short-description>
+# commit your changes
+git push -u origin experiment/<short-description>
+# then open a pull request on GitHub
+```
+Keep commits focused and write clear, descriptive messages.
+
+### Extending to new tasks
+The current training entrypoint targets the cube-reorientation environment. New
+manipulation tasks follow the same pattern — a task-specific reward wrapper plus a
+training entrypoint — and log to their own W&B project. Add them here as the scope
+of the work grows.
+
+---
+
+## Conventions and notes
+- `train.py` runs on CPU by default, which is appropriate for the MLP policy on
+  low-dimensional observations; a GPU provides little benefit and is often slower.
+  Use `--device cuda` only for deliberate experiments.
+- Trained models, checkpoints, and TensorBoard/W&B logs are intentionally excluded
+  from version control (see `.gitignore`).
+- For reproducible runs, pin a specific `orca_sim` commit in `requirements.txt`
+  (see the comment in that file).
