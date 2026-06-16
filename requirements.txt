@@ -1,0 +1,14 @@
+# Core RL + simulation stack
+stable-baselines3[extra]>=2.0
+mujoco>=3.0
+gymnasium>=0.29
+tensorboard>=2.14
+
+# Experiment tracking + model artifacts
+wandb>=0.16
+
+# ORCA simulation environment -- pulled from source as a dependency, NOT
+# vendored into this repo. For reproducible runs, pin a known-good commit once
+# you've confirmed one, e.g.:
+#   orca_sim @ git+https://github.com/orcahand/orca_sim.git@<commit-sha>
+orca_sim @ git+https://github.com/orcahand/orca_sim.git

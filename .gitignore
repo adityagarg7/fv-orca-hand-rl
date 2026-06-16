@@ -1,0 +1,32 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+orca/
+
+# --- Trained models & checkpoints (these live in W&B, not git) ---
+*.zip
+checkpoints/
+models/
+
+# --- TensorBoard + W&B local output ---
+tb_production/
+runs/
+wandb/
+
+# --- Generated plots / images ---
+*.png
+
+# --- OS / editor cruft ---
+.DS_Store
+.ipynb_checkpoints/
+.vscode/
+.idea/
