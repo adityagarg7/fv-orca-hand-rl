@@ -77,14 +77,6 @@ Generate a personal API key at https://wandb.ai/authorize, then log in once
 pixi run login      # or just: wandb login
 ```
 
-### 4. Set your commit identity
-Make sure commits are attributed to your own GitHub account. Using the no-reply
-address from your GitHub email settings keeps your real address private:
-```bash
-git config user.name "Your Name"
-git config user.email "ID+username@users.noreply.github.com"
-```
-
 ---
 
 ## Usage
