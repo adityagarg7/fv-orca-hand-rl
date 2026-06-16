@@ -16,7 +16,7 @@ repository is structured to host additional manipulation tasks as the work expan
 | Code (training scripts, reward wrappers, notebooks) | this Git repository |
 | Training metrics and curves | Weights & Biases (auto-synced from TensorBoard) |
 | Trained models and checkpoints | W&B artifacts (never committed to Git) |
-| The `orca_sim` environment | an installed dependency (`requirements.txt`), not vendored here |
+| The `orca_sim` environment | installed editable from its own clone (see setup), not vendored here |
 
 Guiding principle: **code lives in Git; everything a run produces lives in W&B.**
 This keeps the repository small and reviewable, and removes any need to pass model
@@ -56,7 +56,15 @@ cd fv-orca-hand-rl
 ```bash
 conda create -n orca python=3.11 -y
 conda activate orca
-pip install -r requirements.txt   # also installs orca_sim from source
+pip install -r requirements.txt
+```
+
+Then install the `orca_sim` environment editable from a clone. Its published
+package omits some MuJoCo assets, so an editable source install is required; keep
+the clone outside this repo (e.g. as a sibling folder) so it isn't committed:
+```bash
+git clone https://github.com/orcahand/orca_sim.git ../orca_sim
+pip install -e ../orca_sim
 ```
 
 ### 3. Authenticate with Weights & Biases
@@ -147,5 +155,5 @@ of the work grows.
   Use `--device cuda` only for deliberate experiments.
 - Trained models, checkpoints, and TensorBoard/W&B logs are intentionally excluded
   from version control (see `.gitignore`).
-- For reproducible runs, pin a specific `orca_sim` commit in `requirements.txt`
-  (see the comment in that file).
+- For reproducible runs, pin a specific `orca_sim` version by checking out a known
+  commit in your `orca_sim` clone (`git checkout <commit>`) before `pip install -e`.
