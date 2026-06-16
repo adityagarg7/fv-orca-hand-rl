@@ -1,33 +1,12 @@
 """
-Production-Grade Reward Wrapper for ORCA Cube Reorientation
-============================================================
+Production reward wrapper for OrcaHandRightCubeOrientation.
 
-Addresses the reward hacking problem identified in the sample reward function.
-
-Root Cause of Hacking:
-  The sample reward gives per-step alignment credit with no success bonus.
-  An optimal-reward-seeking agent learns to hold the cube at partial alignment
-  for the full 200 steps (~170 cumulative reward) rather than completing the
-  task and terminating the episode early (~30 cumulative reward).
-
-Design Principles (from arXiv:2605.21330, HORA, and OpenAI Dactyl):
-  1. Exponential kernel on angular error  → steep gradient near goal
-  2. Large terminal success bonus         → solving dominates farming
-  3. Position tracking                    → keep cube centred in palm
-  4. Action regularisation                → smooth, hardware-transferable motion
-  5. Alive bonus                          → small incentive to not drop
-
-Mathematical Proof That This Fixes the Exploit:
-  OLD: farming alignment 0.85 for 200 steps = 0.5*(0.85+1)*200 = 185
-       solving at step 30 = 0.5*(avg~0.5)*30 = 15, no bonus → agent farms
-
-  NEW: farming alignment 0.85 for 200 steps:
-       (2.0*exp(-0.555/0.3) + 0.1*0.5 + 0.02) * 200 = 76.9
-       farming at 0.95 for 200 steps (worst case): 152.8
-       solving at step 50:
-       ~8.0 (align) + 3.5 (pos) + 1.0 (alive) + 250 (success) = 258.0
-       → Solve/Farm@0.85 = 3.35x, Solve/Farm@0.95 = 1.69x
-       → agent MUST solve to maximise reward
+The baseline reward gives only per-step alignment credit, so the agent farms a
+partial alignment for the whole episode instead of solving and terminating. This
+wrapper adds a large terminal success bonus that dominates farming, an exponential
+alignment kernel, position tracking, an alive bonus, a drop penalty, and action
+regularisation. The success bonus is granted only after the cube is held correctly
+oriented and stable for `required_hold_steps` consecutive steps.
 """
 
 import gymnasium as gym

@@ -44,7 +44,12 @@ or log files around by hand.
 ### Prerequisites
 - Access to this private repository (request from a repository admin).
 - Membership in the Four Vectors Weights & Biases team (request from a W&B admin).
-- Python 3.11. Conda is recommended, matching the `orca_sim` documentation.
+- [pixi](https://pixi.sh) for environment management. Install it once:
+  ```bash
+  curl -fsSL https://pixi.sh/install.sh | bash
+  ```
+  pixi reads `pixi.toml`, pins everything in `pixi.lock`, and builds an isolated
+  Python 3.11 environment — no conda or manual venv needed.
 
 ### 1. Clone the repository
 ```bash
@@ -52,26 +57,24 @@ git clone https://github.com/adityagarg7/fv-orca-hand-rl.git
 cd fv-orca-hand-rl
 ```
 
-### 2. Create the environment and install dependencies
+### 2. Build the environment
 ```bash
-conda create -n orca python=3.11 -y
-conda activate orca
-pip install -r requirements.txt
+pixi install        # creates the env from pixi.toml + pixi.lock
 ```
 
 Then install the `orca_sim` environment editable from a clone. Its published
-package omits some MuJoCo assets, so an editable source install is required; keep
-the clone outside this repo (e.g. as a sibling folder) so it isn't committed:
+package omits some MuJoCo assets, so an editable source install is required; the
+task below clones it as a sibling folder (outside this repo, so it isn't
+committed) and installs it editable:
 ```bash
-git clone https://github.com/orcahand/orca_sim.git ../orca_sim
-pip install -e ../orca_sim
+pixi run setup-orca
 ```
 
 ### 3. Authenticate with Weights & Biases
 Generate a personal API key at https://wandb.ai/authorize, then log in once
-(the key is stored in `~/.netrc`):
+(the key is stored in `~/.netrc`, not in the project):
 ```bash
-wandb login
+pixi run login      # or just: wandb login
 ```
 
 ### 4. Set your commit identity
@@ -88,14 +91,19 @@ git config user.email "ID+username@users.noreply.github.com"
 
 ### Training locally
 ```bash
-python train.py --timesteps 20000 --run-name smoke-test     # quick sanity check
-python train.py --timesteps 20000000 --run-name prod-20M    # full run
+pixi run smoke                                                            # quick sanity check (20k steps)
+pixi run train --timesteps 20000000 --run-name prod-20M --upload-model    # full run, keep the model
 ```
-Metrics stream to W&B in real time, and the final model is logged as a versioned
-artifact named `model-<run_id>`. For reference, the cube-reorientation reward
-reaches roughly 53% success by ~500k steps, so the full 20M run is rarely
-necessary. Pass `--project <name>` to log a different task to its own W&B project,
-or `--entity <team>` to target the shared team workspace.
+`pixi run <task>` runs inside the project environment; extra flags pass straight
+through to `train.py`. (Equivalently, activate the env with `pixi shell` and call
+`python train.py ...` directly.) Runs log to the `fourvectors` W&B entity by
+default — override with `--entity <team>` if needed. Metrics stream to W&B in
+real time. Pass `--upload-model` to also save the trained
+model to W&B as a versioned artifact (`model-<run_id>`); it is off by default so
+quick test runs stay fast. For reference, the cube-reorientation reward reaches
+roughly 53% success by ~500k steps, so the full 20M run is rarely necessary. Pass
+`--project <name>` to log a different task to its own W&B project, or `--entity
+<team>` to target the shared team workspace.
 
 ### Training on Colab
 Open `colab_train.ipynb`. Credentials are read from Colab Secrets (a GitHub
@@ -118,8 +126,8 @@ path = art.download()   # the .zip is downloaded to `path`
 
 ### Rendering a policy
 ```bash
-python render_policy.py path/to/model.zip      # Linux
-mjpython render_policy.py path/to/model.zip    # macOS
+pixi run render path/to/model.zip                   # Linux
+pixi run mjpython render_policy.py path/to/model.zip # macOS (the viewer needs mjpython)
 ```
 
 ---

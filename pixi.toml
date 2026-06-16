@@ -1,0 +1,33 @@
+[project]
+name = "fv-orca-hand-rl"
+description = "RL training for the ORCA dexterous hand (in-hand cube reorientation)."
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[dependencies]
+python = "3.11.*"
+pip = "*"          # needed by the setup-orca task to install orca_sim editable
+
+[pypi-dependencies]
+# Mirrors requirements.txt. orca_sim is NOT here — its published package omits
+# some MuJoCo assets, so it is installed editable from a clone (see setup-orca).
+stable-baselines3 = { version = ">=2.0", extras = ["extra"] }
+mujoco = ">=3.1"
+gymnasium = ">=0.29"
+tensorboard = ">=2.14"
+wandb = ">=0.16"
+
+[tasks]
+# One-time: clone orca_sim as a sibling folder and install it editable. Kept
+# outside this repo so it is never committed. Safe to re-run (clone is skipped
+# if the folder already exists).
+setup-orca = "git clone https://github.com/orcahand/orca_sim.git ../orca_sim || true && pip install -e ../orca_sim"
+
+# Convenience alias for the one-time W&B login (stores the key in ~/.netrc, not
+# in this project). You can also just run `wandb login` directly.
+login = "wandb login"
+
+# Training shortcuts. Extra flags pass through, e.g. `pixi run train --timesteps 20000000 --upload-model`.
+train  = "python train.py"
+smoke  = "python train.py --timesteps 20000 --run-name smoke-test"
+render = "python render_policy.py"

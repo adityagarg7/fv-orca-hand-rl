@@ -12,6 +12,9 @@ venv/
 env/
 orca/
 
+# --- pixi (the lockfile IS committed; the env dir is not) ---
+.pixi/
+
 # --- Trained models & checkpoints (these live in W&B, not git) ---
 *.zip
 checkpoints/
