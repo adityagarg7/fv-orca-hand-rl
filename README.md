@@ -37,12 +37,12 @@ account). Then **Settings → Collaborators** and invite Siddhant. Push this
 scaffold to it:
 
 ```bash
-cd four-vectors-orca
+cd ~/Documents/fourvectors/fv_orca_hand_rl
 git init
 git add -A
 git commit -m "Initial scaffold: W&B training, production reward, Colab"
 git branch -M main
-git remote add origin https://github.com/<owner>/<repo>.git
+git remote add origin https://github.com/<owner>/fv-orca-hand-rl.git
 git push -u origin main
 ```
 
