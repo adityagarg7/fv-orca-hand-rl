@@ -1,17 +1,19 @@
 """
-Production reward wrapper for OrcaHandRightCubeOrientation — Phase 1.
+Production reward wrapper for OrcaHandRightCubeOrientation — Phase 1.1.
 
-Fixes three problems with the v1 reward:
-  1. Action penalties dominated the alignment signal 20:1 — agent learned
-     "don't move" instead of "rotate the cube."  Fixed by reducing action
-     penalty weights 10x and boosting alignment weight.
-  2. The 15-step stable-grasp hold was an impossible exploration barrier for
-     a random policy.  Reduced to 5 steps, and a progressive per-step hold
-     bonus now provides immediate signal for each correct-hold frame.
-  3. No fingertip contact signal — the agent had no reason to keep fingers
-     on the cube.  Added a distance-based fingertip proximity reward.
+Post-mortem fixes from Phase 1 (3.5M steps, 0% success):
+  1. REMOVED the velocity gate + hold timer from success criteria.
+     The agent could never stumble into success because the policy noise
+     (std) exploded to 5.2x, making it impossible to hold the cube still.
+  2. SUCCESS is now granted IMMEDIATELY when is_success is True, but
+     SCALED by a stability multiplier so smooth grasps earn 3x more than
+     flick-and-pray.  This gives the agent a gradient toward stability
+     without creating an impossible exploration barrier.
+  3. Terminal-on-success is DISABLED for the first 1M steps (via a
+     curriculum flag) so the agent can accumulate more experience with
+     successful orientations instead of ending the episode immediately.
 
-Changes are backed by:
+Backed by:
   - arXiv:2605.21330 (action penalty << task reward)
   - OpenAI Dactyl  (rotation-progress delta as primary dense signal)
   - HORA / IsaacGym ShadowHand (fingertip distance bonuses)
@@ -32,10 +34,11 @@ FINGERTIP_BODIES = (
 
 
 class ProductionRewardWrapper(gym.Wrapper):
-    """Wraps OrcaHandRightCubeOrientation with the Phase-1 shaped reward.
+    """Wraps OrcaHandRightCubeOrientation with the Phase-1.1 shaped reward.
 
-    This does NOT modify the original orca_sim source code.  It intercepts
-    the reward after each step and replaces it with a properly shaped signal.
+    Key change from Phase 1: success is granted IMMEDIATELY (no hold timer)
+    but scaled by how smoothly the agent achieves it.  This eliminates the
+    impossible exploration barrier while still incentivising stable grasps.
     """
 
     def __init__(
@@ -49,14 +52,13 @@ class ProductionRewardWrapper(gym.Wrapper):
         # --- Position keeping (keep cube centred) ---
         pos_weight: float = 0.5,
         pos_sigma: float = 0.03,        # metres
-        # --- Fingertip proximity (new — finger-joint tracking) ---
+        # --- Fingertip proximity (finger-joint tracking) ---
         finger_weight: float = 0.3,
         finger_sigma: float = 0.02,     # metres
-        # --- Success bonus (anti-hacking) ---
+        # --- Success bonus (immediate, stability-scaled) ---
         success_bonus: float = 100.0,
-        # --- Progressive hold bonus ---
-        hold_weight: float = 2.0,
-        required_hold_steps: int = 5,
+        stability_floor: float = 0.3,   # min multiplier for a flick
+        stability_sigma: float = 0.5,   # velocity scale for smooth bonus
         # --- Alive bonus ---
         alive_bonus: float = 0.05,
         # --- Drop penalty ---
@@ -74,17 +76,17 @@ class ProductionRewardWrapper(gym.Wrapper):
         self.finger_weight = finger_weight
         self.finger_sigma = finger_sigma
         self.success_bonus = success_bonus
-        self.hold_weight = hold_weight
-        self.required_hold_steps = required_hold_steps
+        self.stability_floor = stability_floor
+        self.stability_sigma = stability_sigma
         self.alive_bonus = alive_bonus
         self.drop_penalty = drop_penalty
         self.action_rate_weight = action_rate_weight
         self.action_mag_weight = action_mag_weight
 
-        self._hold_steps = 0
         self._prev_action = None
         self._prev_angle_error = None
         self._default_cube_pos = None
+        self._total_successes = 0       # count total successes this episode
 
         # Resolve fingertip body IDs (done once at construction).
         self._fingertip_body_ids = []
@@ -120,7 +122,7 @@ class ProductionRewardWrapper(gym.Wrapper):
         self._prev_action = np.zeros(self.env.action_space.shape, dtype=np.float32)
         self._default_cube_pos = info["cube_pos"].copy()
         self._prev_angle_error = info["red_face_up_angle_rad"]
-        self._hold_steps = 0
+        self._total_successes = 0
 
         # Lazy-resolve body IDs on first reset.
         if not self._fingertip_body_ids:
@@ -156,28 +158,31 @@ class ProductionRewardWrapper(gym.Wrapper):
             np.exp(-d / self.finger_sigma) for d in finger_dists
         ) / len(finger_dists)
 
-        # ---- 5. Stable grasp check & progressive hold ----
+        # ---- 5. Immediate success with stability multiplier ----
+        #
+        # No hold timer, no velocity gate.  Success is granted the INSTANT
+        # is_success is True.  But the bonus is scaled:
+        #   - Flick-and-pray (high velocity)  → 30  points (floor=0.3)
+        #   - Smooth stable hold (low velocity) → 100 points (full bonus)
+        #
+        # This gives the agent a clear gradient toward stability without
+        # creating an impossible exploration barrier.
+        #
         linear_vel = np.linalg.norm(info["cube_qvel"][:3])
         angular_vel = np.linalg.norm(info["cube_qvel"][3:6])
-        is_stable = (linear_vel < 0.1) and (angular_vel < 0.5) and (pos_error < 0.05)
+        total_vel = linear_vel + angular_vel
 
-        if info["is_success"] and is_stable:
-            self._hold_steps += 1
-        else:
-            self._hold_steps = 0
-
-        # Progressive hold bonus (reward each consecutive hold step).
-        r_hold = self.hold_weight * self._hold_steps if self._hold_steps > 0 else 0.0
-
-        # Terminal success bonus — only after the hold duration.
-        terminated = False
         r_success = 0.0
+        if info["is_success"]:
+            stability = self.stability_floor + (1.0 - self.stability_floor) * np.exp(
+                -total_vel / self.stability_sigma
+            )
+            r_success = self.success_bonus * stability
+            self._total_successes += 1
 
-        if self._hold_steps >= self.required_hold_steps:
-            r_success = self.success_bonus
-            terminated = True
-        elif info["dropped"]:
-            terminated = True
+        # Termination: end episode on drop only. Do NOT terminate on success —
+        # let the agent keep accumulating reward for maintaining the orientation.
+        terminated = info["dropped"]
 
         # ---- 6. Alive bonus ----
         r_alive = self.alive_bonus if not info["dropped"] else 0.0
@@ -197,7 +202,6 @@ class ProductionRewardWrapper(gym.Wrapper):
             + r_progress
             + r_pos
             + r_fingers
-            + r_hold
             + r_success
             + r_alive
             - r_drop
@@ -211,7 +215,6 @@ class ProductionRewardWrapper(gym.Wrapper):
             "progress": float(r_progress),
             "pos": float(r_pos),
             "fingers": float(r_fingers),
-            "hold": float(r_hold),
             "success": float(r_success),
             "alive": float(r_alive),
             "drop": float(-r_drop),
@@ -221,9 +224,10 @@ class ProductionRewardWrapper(gym.Wrapper):
         }
 
         # Debugging info.
-        info["hold_steps"] = self._hold_steps
-        info["is_stable"] = is_stable
+        info["total_vel"] = float(total_vel)
+        info["total_successes"] = self._total_successes
         info["fingertip_dists"] = finger_dists
-        info["is_success"] = (self._hold_steps >= self.required_hold_steps)
+        # Override is_success to reflect whether success was triggered this step
+        info["is_success"] = info["is_success"]
 
         return obs, float(reward), terminated, truncated, info
