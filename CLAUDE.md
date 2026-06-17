@@ -34,8 +34,14 @@ environment (`OrcaHandRightCubeOrientation._get_reward`).
   (Φ = alignment) + a terminal success bonus + a per-step time penalty + a drop
   penalty. This fixes the "loiter to farm dense reward" pathology of the native
   reward (success terminates the episode, so the native reward rewards holding just
-  below the success threshold for the full horizon instead of solving). Coefficients
-  are CLI flags on `train.py` (`--align-coeff/--success-bonus/--time-penalty/--drop-penalty`).
+  below the success threshold for the full horizon instead of solving). It also adds
+  two **anti-cheat** penalties: the hand's wrist is an actuated DOF, and an
+  alignment-only policy learns to flex the wrist forward to dump the cube off the palm
+  so gravity flips it red-up. The penalties charge for wrist deviation from neutral
+  (`--wrist-penalty`) and for the cube sliding off its reset position
+  (`--slide-penalty`/`--slide-deadzone`; translation, not rotation), forcing genuine
+  in-hand finger manipulation. All coefficients are CLI flags on `train.py`
+  (`--align-coeff/--success-bonus/--time-penalty/--drop-penalty/--wrist-penalty/--slide-penalty/--slide-deadzone`).
   To reshape further, edit the wrapper here; the deeper env mechanics still live in
   the sibling `../orca_sim` clone.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
