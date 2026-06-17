@@ -46,7 +46,7 @@ def parse_args():
     p.add_argument("--project", default="orca-cube-reorientation", help="W&B project.")
     p.add_argument("--entity", default="fourvectors", help="W&B entity (team/org).")
     p.add_argument("--run-name", default=None)
-    p.add_argument("--save-freq", type=int, default=500_000, help="Local checkpoint cadence in timesteps.")
+    p.add_argument("--save-freq", type=int, default=100_000, help="Local checkpoint cadence in timesteps.")
     p.add_argument("--resume", default=None, help="Checkpoint .zip to resume from.")
     p.add_argument("--upload-model", action="store_true",
                    help="Upload the trained model to W&B. Off by default so test runs stay fast.")
