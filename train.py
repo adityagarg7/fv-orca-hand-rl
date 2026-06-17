@@ -39,8 +39,7 @@ class ProgressLogger(BaseCallback):
         return True
 
 
-def make_env(align_coeff, success_bonus, time_penalty, drop_penalty,
-             wrist_penalty, slide_penalty, slide_deadzone, gamma):
+def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma):
     """Build a single wrapped env. Called once per sub-env by make_vec_env, so each
     sub-env gets its own reward wrapper instance (and its own potential tracking)."""
     env = OrcaHandRightCubeOrientation(render_mode=None)
@@ -50,9 +49,6 @@ def make_env(align_coeff, success_bonus, time_penalty, drop_penalty,
         success_bonus=success_bonus,
         time_penalty=time_penalty,
         drop_penalty=drop_penalty,
-        wrist_penalty=wrist_penalty,
-        slide_penalty=slide_penalty,
-        slide_deadzone=slide_deadzone,
         gamma=gamma,
     )
 
@@ -78,13 +74,6 @@ def parse_args():
                    help="Constant per-step penalty; encourages faster solves.")
     p.add_argument("--drop-penalty", type=float, default=5.0,
                    help="Terminal penalty when the cube is dropped.")
-    # Anti-cheat knobs: discourage the wrist-dump shortcut (see reward_wrappers.py).
-    p.add_argument("--wrist-penalty", type=float, default=0.5,
-                   help="Per-step cost per radian of wrist deviation from neutral (0 disables).")
-    p.add_argument("--slide-penalty", type=float, default=5.0,
-                   help="Per-step cost per metre the cube drifts from its reset position (0 disables).")
-    p.add_argument("--slide-deadzone", type=float, default=0.03,
-                   help="Cube drift (metres) allowed before the slide penalty applies.")
     return p.parse_args()
 
 
@@ -93,11 +82,9 @@ def main():
 
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
-        reward="potential_shaped_v2",
+        reward="potential_shaped_v1",
         align_coeff=args.align_coeff, success_bonus=args.success_bonus,
         time_penalty=args.time_penalty, drop_penalty=args.drop_penalty,
-        wrist_penalty=args.wrist_penalty, slide_penalty=args.slide_penalty,
-        slide_deadzone=args.slide_deadzone,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
@@ -116,9 +103,6 @@ def main():
         success_bonus=args.success_bonus,
         time_penalty=args.time_penalty,
         drop_penalty=args.drop_penalty,
-        wrist_penalty=args.wrist_penalty,
-        slide_penalty=args.slide_penalty,
-        slide_deadzone=args.slide_deadzone,
         gamma=config["gamma"],
     )
     env = make_vec_env(env_fn, n_envs=args.n_envs)

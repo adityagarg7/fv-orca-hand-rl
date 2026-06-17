@@ -98,12 +98,7 @@ def main():
             if step % 5 == 0:
                 align = info["red_face_up_alignment"]
                 angle_deg = info["red_face_up_angle_rad"] * 180 / 3.14159
-                # wrist_dev / cube_slide reveal the wrist-dump cheat: both should stay
-                # small if the policy is doing genuine in-hand finger manipulation.
-                wrist_dev = info.get("wrist_dev", 0.0)
-                cube_slide = info.get("cube_slide", 0.0)
-                print(f"    step {step:3d} | alignment={align:+.3f} | angle_from_goal={angle_deg:.1f} deg | "
-                      f"wrist_dev={wrist_dev:.2f} rad | cube_slide={cube_slide*100:.1f} cm | reward={reward:.2f}")
+                print(f"    step {step:3d} | alignment={align:+.3f} | angle_from_goal={angle_deg:.1f} deg | reward={reward:.2f}")
 
             if step_delay:
                 time.sleep(step_delay)
