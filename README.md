@@ -3,9 +3,9 @@
 Reinforcement-learning training and research for the ORCA dexterous hand at Four Vectors.
 
 This repository is the shared home for RL work on the ORCA hand. The first task
-implemented here is **in-hand cube reorientation**, trained with PPO and a shaped
-"production" reward that eliminates the flick-and-pray reward-hacking exploit. The
-repository is structured to host additional manipulation tasks as the work expands.
+implemented here is **in-hand cube reorientation**, trained with PPO directly on
+the reward built into the `orca_sim` environment. The repository is structured to
+host additional manipulation tasks as the work expands.
 
 ---
 
@@ -13,7 +13,7 @@ repository is structured to host additional manipulation tasks as the work expan
 
 | Artifact | Where it lives |
 | --- | --- |
-| Code (training scripts, reward wrappers, notebooks) | this Git repository |
+| Code (training scripts, notebooks) | this Git repository |
 | Training metrics and curves | Weights & Biases (auto-synced from TensorBoard) |
 | Trained models and checkpoints | W&B artifacts (never committed to Git) |
 | The `orca_sim` environment | installed editable from its own clone (see setup), not vendored here |
@@ -29,9 +29,6 @@ or log files around by hand.
 - `train.py` — PPO training entrypoint with W&B logging. Run length and other
   hyperparameters are command-line flags, so no file edits are needed for quick
   experiments.
-- `production_reward.py` — the reward wrapper for the cube-reorientation task
-  (exponential alignment kernel, terminal success bonus, stable-grasp hold
-  constraint, action regularisation).
 - `render_policy.py` — load a trained model and inspect its behaviour in the
   MuJoCo viewer.
 - `colab_train.ipynb` — run training on Google Colab (clones this repo, logs to W&B).
@@ -143,8 +140,9 @@ Keep commits focused and write clear, descriptive messages.
 
 ### Extending to new tasks
 The current training entrypoint targets the cube-reorientation environment. New
-manipulation tasks follow the same pattern — a task-specific reward wrapper plus a
-training entrypoint — and log to their own W&B project. Add them here as the scope
+manipulation tasks follow the same pattern — an `orca_sim` environment (with its
+own reward) plus a training entrypoint — and log to their own W&B project. Add
+them here as the scope
 of the work grows.
 
 ---

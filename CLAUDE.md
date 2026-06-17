@@ -5,7 +5,8 @@ full setup and team-facing docs; this file only captures the non-obvious gotchas
 
 ## What this is
 RL training for the ORCA dexterous hand. First task: in-hand cube reorientation,
-PPO (Stable-Baselines3) + a shaped reward that prevents reward hacking.
+PPO (Stable-Baselines3) trained directly on the reward built into the `orca_sim`
+environment (`OrcaHandRightCubeOrientation._get_reward`).
 
 ## Environment — use pixi
 - The env is pixi-managed. Run Python through it: `pixi run python ...` (or
@@ -25,10 +26,10 @@ PPO (Stable-Baselines3) + a shaped reward that prevents reward hacking.
   rarely wanted and often slower.
 
 ## Key files
-- `production_reward.py` — the shaped reward (exponential alignment kernel,
-  terminal success bonus, stable-grasp hold, action regularisation). This is the
-  heart of the project and the anti-reward-hacking logic; reward changes are
-  high-stakes — change deliberately.
+- The reward lives in `orca_sim` itself
+  (`OrcaHandRightCubeOrientation._get_reward`: alignment + lift bonus − drop
+  penalty), not in this repo. Training runs on it directly — there is no reward
+  wrapper. To reshape the reward, edit the sibling `../orca_sim` clone.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).

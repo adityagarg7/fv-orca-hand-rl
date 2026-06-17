@@ -14,11 +14,10 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 import wandb
 
 from orca_sim import OrcaHandRightCubeOrientation
-from production_reward import ProductionRewardWrapper
 
 
 class ProgressLogger(BaseCallback):
-    """Print the reward breakdown every `log_freq` steps."""
+    """Print the cube-orientation state every `log_freq` steps."""
 
     def __init__(self, log_freq=200_000):
         super().__init__()
@@ -27,15 +26,19 @@ class ProgressLogger(BaseCallback):
     def _on_step(self):
         if self.n_calls % self.log_freq == 0:
             for info in self.locals.get("infos", []):
-                if "reward_breakdown" in info:
-                    parts = " | ".join(f"{k}={v:.2f}" for k, v in info["reward_breakdown"].items())
-                    print(f"  [step {self.num_timesteps:>10,d}] {parts}")
+                if "red_face_up_angle_rad" in info:
+                    print(
+                        f"  [step {self.num_timesteps:>10,d}] "
+                        f"angle_rad={info['red_face_up_angle_rad']:.2f} | "
+                        f"alignment={info['red_face_up_alignment']:+.2f} | "
+                        f"success={info['is_success']} | dropped={info['dropped']}"
+                    )
                     break
         return True
 
 
 def make_env():
-    return ProductionRewardWrapper(OrcaHandRightCubeOrientation(render_mode=None))
+    return OrcaHandRightCubeOrientation(render_mode=None)
 
 
 def parse_args():
@@ -58,7 +61,7 @@ def main():
 
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
-        reward="ProductionRewardWrapper", total_timesteps=args.timesteps, n_envs=args.n_envs,
+        reward="orca_sim_native", total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
     )
