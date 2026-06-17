@@ -16,6 +16,7 @@ import wandb
 
 from orca_sim import OrcaHandRightCubeOrientation
 from reward_wrappers import PotentialShapedReorientationReward
+from curriculum import GravityCurriculumWrapper, GravityCurriculumCallback
 
 
 class ProgressLogger(BaseCallback):
@@ -39,11 +40,12 @@ class ProgressLogger(BaseCallback):
         return True
 
 
-def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma):
+def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma, gravity_start):
     """Build a single wrapped env. Called once per sub-env by make_vec_env, so each
-    sub-env gets its own reward wrapper instance (and its own potential tracking)."""
+    sub-env gets its own reward wrapper instance (and its own potential tracking).
+    The env starts at the (reduced) curriculum gravity; the callback ramps it up."""
     env = OrcaHandRightCubeOrientation(render_mode=None)
-    return PotentialShapedReorientationReward(
+    env = PotentialShapedReorientationReward(
         env,
         align_coeff=align_coeff,
         success_bonus=success_bonus,
@@ -51,6 +53,7 @@ def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma):
         drop_penalty=drop_penalty,
         gamma=gamma,
     )
+    return GravityCurriculumWrapper(env, gravity=-abs(gravity_start))
 
 
 def parse_args():
@@ -74,6 +77,15 @@ def parse_args():
                    help="Constant per-step penalty; encourages faster solves.")
     p.add_argument("--drop-penalty", type=float, default=5.0,
                    help="Terminal penalty when the cube is dropped.")
+    # Gravity curriculum (see curriculum.py): train under reduced gravity first so the
+    # wrist-dump cheat can't work, then anneal to full gravity. Set --gravity-start
+    # equal to --gravity-final to disable (constant gravity).
+    p.add_argument("--gravity-start", type=float, default=2.0,
+                   help="Initial gravity magnitude (m/s^2); reduced so the cube can't be dumped.")
+    p.add_argument("--gravity-final", type=float, default=9.81,
+                   help="Final (full) gravity magnitude (m/s^2).")
+    p.add_argument("--gravity-warmup-frac", type=float, default=0.6,
+                   help="Fraction of total timesteps over which gravity ramps start->final.")
     return p.parse_args()
 
 
@@ -85,6 +97,8 @@ def main():
         reward="potential_shaped_v1",
         align_coeff=args.align_coeff, success_bonus=args.success_bonus,
         time_penalty=args.time_penalty, drop_penalty=args.drop_penalty,
+        gravity_start=args.gravity_start, gravity_final=args.gravity_final,
+        gravity_warmup_frac=args.gravity_warmup_frac,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
@@ -104,6 +118,7 @@ def main():
         time_penalty=args.time_penalty,
         drop_penalty=args.drop_penalty,
         gamma=config["gamma"],
+        gravity_start=args.gravity_start,
     )
     env = make_vec_env(env_fn, n_envs=args.n_envs)
     tb_dir = f"tb_production/{run.id}"
@@ -120,7 +135,13 @@ def main():
     checkpoints = CheckpointCallback(save_freq=max(1, args.save_freq // args.n_envs),
                                      save_path=f"checkpoints/{run.id}", name_prefix="ppo_production")
 
-    model.learn(total_timesteps=args.timesteps, callback=[ProgressLogger(), checkpoints],
+    # Ramp gravity from gravity_start up to gravity_final over the warmup fraction of
+    # training, removing the wrist-dump cheat by training under reduced gravity first.
+    gravity = GravityCurriculumCallback(
+        g_start=args.gravity_start, g_final=args.gravity_final,
+        warmup_steps=int(args.gravity_warmup_frac * args.timesteps))
+
+    model.learn(total_timesteps=args.timesteps, callback=[ProgressLogger(), checkpoints, gravity],
                 tb_log_name="ppo_production", reset_num_timesteps=not args.resume)
 
     model.save("ppo_orca_production_final.zip")

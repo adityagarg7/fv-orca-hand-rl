@@ -38,6 +38,15 @@ environment (`OrcaHandRightCubeOrientation._get_reward`).
   are CLI flags on `train.py` (`--align-coeff/--success-bonus/--time-penalty/--drop-penalty`).
   To reshape further, edit the wrapper here; the deeper env mechanics still live in
   the sibling `../orca_sim` clone.
+- `curriculum.py` — **gravity curriculum** (`GravityCurriculumWrapper` +
+  `GravityCurriculumCallback`). The wrist is an actuated DOF; an alignment-only policy
+  learns to flex it forward and let *gravity* dump the cube off the palm so it flips
+  red-up (a cheat). Rather than penalize the wrist/cube directly (which freezes the
+  policy), training starts under **reduced gravity** (the dump barely works and the
+  cube can't fall, so fingers must do the reorientation) and the callback **ramps
+  gravity up to full** over `--gravity-warmup-frac` of training. Flags:
+  `--gravity-start/--gravity-final/--gravity-warmup-frac` (set start == final to
+  disable). Gravity is set live on MuJoCo via `model.opt.gravity`.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).
