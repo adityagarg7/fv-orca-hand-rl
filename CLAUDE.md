@@ -26,10 +26,18 @@ environment (`OrcaHandRightCubeOrientation._get_reward`).
   rarely wanted and often slower.
 
 ## Key files
-- The reward lives in `orca_sim` itself
+- The env's native reward lives in `orca_sim` itself
   (`OrcaHandRightCubeOrientation._get_reward`: alignment + lift bonus − drop
-  penalty), not in this repo. Training runs on it directly — there is no reward
-  wrapper. To reshape the reward, edit the sibling `../orca_sim` clone.
+  penalty). Training does **not** use it directly: `reward_wrappers.py` defines
+  `PotentialShapedReorientationReward`, a gymnasium wrapper that discards the native
+  reward and rebuilds it from the env `info` dict using potential-based shaping
+  (Φ = alignment) + a terminal success bonus + a per-step time penalty + a drop
+  penalty. This fixes the "loiter to farm dense reward" pathology of the native
+  reward (success terminates the episode, so the native reward rewards holding just
+  below the success threshold for the full horizon instead of solving). Coefficients
+  are CLI flags on `train.py` (`--align-coeff/--success-bonus/--time-penalty/--drop-penalty`).
+  To reshape further, edit the wrapper here; the deeper env mechanics still live in
+  the sibling `../orca_sim` clone.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).

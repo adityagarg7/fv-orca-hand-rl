@@ -7,6 +7,7 @@ PPO training for ORCA in-hand cube reorientation, logging to Weights & Biases.
 """
 
 import argparse
+import functools
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
@@ -14,6 +15,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 import wandb
 
 from orca_sim import OrcaHandRightCubeOrientation
+from reward_wrappers import PotentialShapedReorientationReward
 
 
 class ProgressLogger(BaseCallback):
@@ -37,8 +39,18 @@ class ProgressLogger(BaseCallback):
         return True
 
 
-def make_env():
-    return OrcaHandRightCubeOrientation(render_mode=None)
+def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma):
+    """Build a single wrapped env. Called once per sub-env by make_vec_env, so each
+    sub-env gets its own reward wrapper instance (and its own potential tracking)."""
+    env = OrcaHandRightCubeOrientation(render_mode=None)
+    return PotentialShapedReorientationReward(
+        env,
+        align_coeff=align_coeff,
+        success_bonus=success_bonus,
+        time_penalty=time_penalty,
+        drop_penalty=drop_penalty,
+        gamma=gamma,
+    )
 
 
 def parse_args():
@@ -53,6 +65,15 @@ def parse_args():
     p.add_argument("--resume", default=None, help="Checkpoint .zip to resume from.")
     p.add_argument("--upload-model", action="store_true",
                    help="Upload the trained model to W&B. Off by default so test runs stay fast.")
+    # Reward-shaping knobs (potential-based shaping; see reward_wrappers.py).
+    p.add_argument("--align-coeff", type=float, default=1.0,
+                   help="Scale on the potential-based alignment-progress reward.")
+    p.add_argument("--success-bonus", type=float, default=10.0,
+                   help="Terminal reward added when the cube reaches the goal orientation.")
+    p.add_argument("--time-penalty", type=float, default=0.01,
+                   help="Constant per-step penalty; encourages faster solves.")
+    p.add_argument("--drop-penalty", type=float, default=5.0,
+                   help="Terminal penalty when the cube is dropped.")
     return p.parse_args()
 
 
@@ -61,7 +82,10 @@ def main():
 
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
-        reward="orca_sim_native", total_timesteps=args.timesteps, n_envs=args.n_envs,
+        reward="potential_shaped_v1",
+        align_coeff=args.align_coeff, success_bonus=args.success_bonus,
+        time_penalty=args.time_penalty, drop_penalty=args.drop_penalty,
+        total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
     )
@@ -71,7 +95,17 @@ def main():
     print(f"Run {run.name} ({run.id}) | {args.timesteps:,} steps | {args.n_envs} envs | "
           f"{args.device} | upload_model={args.upload_model}\n{run.url}")
 
-    env = make_vec_env(make_env, n_envs=args.n_envs)
+    # Bind the reward-shaping coefficients (and the training gamma, so PBRS uses the
+    # same discount) into a zero-arg factory that make_vec_env calls per sub-env.
+    env_fn = functools.partial(
+        make_env,
+        align_coeff=args.align_coeff,
+        success_bonus=args.success_bonus,
+        time_penalty=args.time_penalty,
+        drop_penalty=args.drop_penalty,
+        gamma=config["gamma"],
+    )
+    env = make_vec_env(env_fn, n_envs=args.n_envs)
     tb_dir = f"tb_production/{run.id}"
 
     if args.resume:

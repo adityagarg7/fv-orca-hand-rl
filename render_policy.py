@@ -28,6 +28,7 @@ import time
 
 from stable_baselines3 import PPO
 from orca_sim import OrcaHandRightCubeOrientation
+from reward_wrappers import PotentialShapedReorientationReward
 
 
 def parse_args():
@@ -67,8 +68,12 @@ def main():
         print(f"Loading model: {args.model}")
         model = PPO.load(args.model)
 
-    # Create the env WITH rendering enabled (viewer is shown in both modes).
-    env = OrcaHandRightCubeOrientation(render_mode="human")
+    # Create the env WITH rendering enabled (viewer is shown in both modes), wrapped
+    # in the same reward shaping used for training so the printed per-step `reward=`
+    # and the SUMMARY reflect the shaped reward the model was trained on. (Wrapper
+    # defaults match train.py's defaults; the policy's actions are unaffected by the
+    # reward at inference time.)
+    env = PotentialShapedReorientationReward(OrcaHandRightCubeOrientation(render_mode="human"))
 
     mode_label = "interactive" if args.interactive else "non-interactive"
     print(f"\nRunning {args.episodes} episodes in {mode_label} mode at {step_delay}s per step.\n")
