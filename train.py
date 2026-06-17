@@ -78,14 +78,18 @@ def parse_args():
     p.add_argument("--drop-penalty", type=float, default=5.0,
                    help="Terminal penalty when the cube is dropped.")
     # Gravity curriculum (see curriculum.py): train under reduced gravity first so the
-    # wrist-dump cheat can't work, then anneal to full gravity. Set --gravity-start
-    # equal to --gravity-final to disable (constant gravity).
+    # wrist-dump cheat can't work, then raise gravity only once the policy is competent
+    # at the current level. Set --gravity-start equal to --gravity-final to disable.
     p.add_argument("--gravity-start", type=float, default=2.0,
                    help="Initial gravity magnitude (m/s^2); reduced so the cube can't be dumped.")
     p.add_argument("--gravity-final", type=float, default=9.81,
                    help="Final (full) gravity magnitude (m/s^2).")
-    p.add_argument("--gravity-warmup-frac", type=float, default=0.6,
-                   help="Fraction of total timesteps over which gravity ramps start->final.")
+    p.add_argument("--gravity-success-threshold", type=float, default=0.75,
+                   help="Success rate at the current gravity required before raising it.")
+    p.add_argument("--gravity-step", type=float, default=1.0,
+                   help="Gravity magnitude increment (m/s^2) per promotion.")
+    p.add_argument("--gravity-min-episodes", type=int, default=50,
+                   help="Min episodes at the current gravity before a promotion can trigger.")
     return p.parse_args()
 
 
@@ -98,7 +102,8 @@ def main():
         align_coeff=args.align_coeff, success_bonus=args.success_bonus,
         time_penalty=args.time_penalty, drop_penalty=args.drop_penalty,
         gravity_start=args.gravity_start, gravity_final=args.gravity_final,
-        gravity_warmup_frac=args.gravity_warmup_frac,
+        gravity_success_threshold=args.gravity_success_threshold,
+        gravity_step=args.gravity_step, gravity_min_episodes=args.gravity_min_episodes,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
@@ -135,11 +140,13 @@ def main():
     checkpoints = CheckpointCallback(save_freq=max(1, args.save_freq // args.n_envs),
                                      save_path=f"checkpoints/{run.id}", name_prefix="ppo_production")
 
-    # Ramp gravity from gravity_start up to gravity_final over the warmup fraction of
-    # training, removing the wrist-dump cheat by training under reduced gravity first.
+    # Performance-gated gravity curriculum: start at reduced gravity (so the wrist-dump
+    # cheat can't work) and raise it only once the policy is competent at the current
+    # level, so it can't ramp into the cheat before learning finger manipulation.
     gravity = GravityCurriculumCallback(
         g_start=args.gravity_start, g_final=args.gravity_final,
-        warmup_steps=int(args.gravity_warmup_frac * args.timesteps))
+        success_threshold=args.gravity_success_threshold,
+        step=args.gravity_step, min_episodes=args.gravity_min_episodes)
 
     model.learn(total_timesteps=args.timesteps, callback=[ProgressLogger(), checkpoints, gravity],
                 tb_log_name="ppo_production", reset_num_timesteps=not args.resume)

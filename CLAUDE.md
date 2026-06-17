@@ -43,10 +43,12 @@ environment (`OrcaHandRightCubeOrientation._get_reward`).
   learns to flex it forward and let *gravity* dump the cube off the palm so it flips
   red-up (a cheat). Rather than penalize the wrist/cube directly (which freezes the
   policy), training starts under **reduced gravity** (the dump barely works and the
-  cube can't fall, so fingers must do the reorientation) and the callback **ramps
-  gravity up to full** over `--gravity-warmup-frac` of training. Flags:
-  `--gravity-start/--gravity-final/--gravity-warmup-frac` (set start == final to
-  disable). Gravity is set live on MuJoCo via `model.opt.gravity`.
+  cube can't fall, so fingers must do the reorientation) and the callback is
+  **performance-gated**: it raises gravity only once the success rate at the current
+  level clears `--gravity-success-threshold`, so it can't ramp into the cheat before
+  finger manipulation is learned. Flags: `--gravity-start/--gravity-final/
+  --gravity-success-threshold/--gravity-step/--gravity-min-episodes` (set start ==
+  final to disable). Gravity is set live on MuJoCo via `model.opt.gravity`.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).

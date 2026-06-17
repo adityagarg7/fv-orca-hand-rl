@@ -20,15 +20,21 @@ PPO / Stable-Baselines3 setup.
 
 * ``GravityCurriculumWrapper`` lets the live MuJoCo gravity be set per sub-env and
   starts each env at the initial (reduced) gravity.
-* ``GravityCurriculumCallback`` ramps the gravity magnitude from ``g_start`` to
-  ``g_final`` over the first ``warmup_steps`` timesteps, holds it at full afterwards,
-  and pushes the value to every sub-env via ``VecEnv.env_method``.
+* ``GravityCurriculumCallback`` is **performance-gated**: it holds gravity at the
+  current level until the recent success rate *at that level* reaches a threshold,
+  then steps the gravity magnitude up (toward ``g_final``) and resets the success
+  measurement. This guarantees the policy actually masters each gravity level before
+  it is made harder -- unlike a fixed time schedule, which can ramp into full gravity
+  (and hand back the wrist-dump cheat) before finger manipulation is learned.
 
 To disable the curriculum, set ``g_start == g_final`` (constant gravity).
 """
 
+from collections import deque
+
 import gymnasium as gym
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.utils import safe_mean
 
 
 class GravityCurriculumWrapper(gym.Wrapper):
@@ -61,37 +67,56 @@ class GravityCurriculumWrapper(gym.Wrapper):
 
 
 class GravityCurriculumCallback(BaseCallback):
-    """Anneal gravity magnitude from ``g_start`` to ``g_final`` over ``warmup_steps``.
+    """Performance-gated gravity curriculum.
 
-    ``g_start`` / ``g_final`` are positive magnitudes (m/s^2); the downward z gravity
-    pushed to each env is ``-g``. After ``warmup_steps`` total timesteps gravity is
-    held at ``-g_final``. The value is broadcast to all sub-envs via ``env_method``
-    every ``update_freq`` callback steps and logged as ``curriculum/gravity``.
+    Holds gravity at the current level until the recent success rate at that level
+    reaches ``success_threshold`` (measured over the episodes completed since the last
+    promotion, requiring at least ``min_episodes`` of them for a reliable estimate),
+    then raises the gravity magnitude by ``step`` (clamped at ``g_final``) and clears
+    the success buffer so the next level is judged on its own. ``g_start`` / ``g_final``
+    / ``step`` are positive magnitudes (m/s^2); the downward z gravity pushed to each
+    env is ``-g``. Logs ``curriculum/gravity``, ``curriculum/success_at_level`` and
+    ``curriculum/level_episodes``.
     """
 
-    def __init__(self, g_start: float, g_final: float, warmup_steps: int,
-                 update_freq: int = 20):
-        super().__init__()
-        self.g_start = float(g_start)
+    def __init__(self, g_start: float, g_final: float, success_threshold: float = 0.75,
+                 step: float = 1.0, min_episodes: int = 50, window: int = 100,
+                 verbose: int = 1):
+        super().__init__(verbose=verbose)
         self.g_final = float(g_final)
-        self.warmup_steps = max(1, int(warmup_steps))
-        self.update_freq = max(1, int(update_freq))
+        self.step = float(step)
+        self.success_threshold = float(success_threshold)
+        self.min_episodes = int(min_episodes)
+        self._g = float(g_start)
+        self._succ: deque = deque(maxlen=int(window))
 
-    def _current_g(self) -> float:
-        frac = min(1.0, self.num_timesteps / self.warmup_steps)
-        return self.g_start + frac * (self.g_final - self.g_start)
-
-    def _push(self) -> float:
-        g = self._current_g()
-        self.training_env.env_method("set_gravity", -g)
-        self.logger.record("curriculum/gravity", g)
-        return g
+    def _set_gravity(self, g: float) -> None:
+        self._g = min(self.g_final, float(g))
+        self.training_env.env_method("set_gravity", -self._g)
 
     def _on_training_start(self) -> None:
         # Apply the starting gravity immediately so the first rollout uses it.
-        self._push()
+        self._set_gravity(self._g)
 
     def _on_step(self) -> bool:
-        if self.n_calls % self.update_freq == 0:
-            self._push()
+        # Record success/failure for each episode that finished this step.
+        for info, done in zip(self.locals.get("infos", []), self.locals.get("dones", [])):
+            if done and "is_success" in info:
+                self._succ.append(float(bool(info["is_success"])))
+
+        level_success = safe_mean(list(self._succ)) if len(self._succ) else 0.0
+
+        # Promote only once the policy is competent at the current gravity.
+        if (self._g < self.g_final
+                and len(self._succ) >= self.min_episodes
+                and level_success >= self.success_threshold):
+            self._set_gravity(self._g + self.step)
+            self._succ.clear()
+            if self.verbose:
+                print(f"[gravity-curriculum] success {level_success:.0%} at this level "
+                      f"-> raising gravity to {self._g:.2f} m/s^2")
+
+        self.logger.record("curriculum/gravity", self._g)
+        self.logger.record("curriculum/success_at_level", level_success)
+        self.logger.record("curriculum/level_episodes", len(self._succ))
         return True
