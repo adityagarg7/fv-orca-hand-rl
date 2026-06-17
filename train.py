@@ -17,6 +17,7 @@ import wandb
 from orca_sim import OrcaHandRightCubeOrientation
 from reward_wrappers import PotentialShapedReorientationReward
 from curriculum import GravityCurriculumWrapper, GravityCurriculumCallback
+from action_wrappers import WristClampWrapper
 
 
 class ProgressLogger(BaseCallback):
@@ -40,10 +41,12 @@ class ProgressLogger(BaseCallback):
         return True
 
 
-def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma, gravity_start):
+def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma, gravity_start, wrist_band):
     """Build a single wrapped env. Called once per sub-env by make_vec_env, so each
     sub-env gets its own reward wrapper instance (and its own potential tracking).
-    The env starts at the (reduced) curriculum gravity; the callback ramps it up."""
+    The env starts at the (reduced) curriculum gravity; the callback ramps it up.
+    The wrist clamp is the outermost wrapper so it clips the policy's wrist action
+    before any inner wrapper/env sees it (killing the wrist-dump cheat)."""
     env = OrcaHandRightCubeOrientation(render_mode=None)
     env = PotentialShapedReorientationReward(
         env,
@@ -53,7 +56,8 @@ def make_env(align_coeff, success_bonus, time_penalty, drop_penalty, gamma, grav
         drop_penalty=drop_penalty,
         gamma=gamma,
     )
-    return GravityCurriculumWrapper(env, gravity=-abs(gravity_start))
+    env = GravityCurriculumWrapper(env, gravity=-abs(gravity_start))
+    return WristClampWrapper(env, band=wrist_band)
 
 
 def parse_args():
@@ -90,6 +94,11 @@ def parse_args():
                    help="Gravity magnitude increment (m/s^2) per promotion.")
     p.add_argument("--gravity-min-episodes", type=int, default=50,
                    help="Min episodes at the current gravity before a promotion can trigger.")
+    # Wrist clamp (see action_wrappers.py): hard-limit the wrist actuator to a narrow band
+    # around its neutral (palm-up) angle so the policy physically cannot flex it forward to
+    # dump the cube. Removes the cheat's mechanism without penalizing the policy.
+    p.add_argument("--wrist-band", type=float, default=0.15,
+                   help="Half-width (radians) of the allowed wrist range around its neutral angle.")
     return p.parse_args()
 
 
@@ -104,6 +113,7 @@ def main():
         gravity_start=args.gravity_start, gravity_final=args.gravity_final,
         gravity_success_threshold=args.gravity_success_threshold,
         gravity_step=args.gravity_step, gravity_min_episodes=args.gravity_min_episodes,
+        wrist_band=args.wrist_band,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
         gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
@@ -124,6 +134,7 @@ def main():
         drop_penalty=args.drop_penalty,
         gamma=config["gamma"],
         gravity_start=args.gravity_start,
+        wrist_band=args.wrist_band,
     )
     env = make_vec_env(env_fn, n_envs=args.n_envs)
     tb_dir = f"tb_production/{run.id}"

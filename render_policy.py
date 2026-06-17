@@ -29,6 +29,7 @@ import time
 from stable_baselines3 import PPO
 from orca_sim import OrcaHandRightCubeOrientation
 from reward_wrappers import PotentialShapedReorientationReward
+from action_wrappers import WristClampWrapper
 
 
 def parse_args():
@@ -70,10 +71,13 @@ def main():
 
     # Create the env WITH rendering enabled (viewer is shown in both modes), wrapped
     # in the same reward shaping used for training so the printed per-step `reward=`
-    # and the SUMMARY reflect the shaped reward the model was trained on. (Wrapper
-    # defaults match train.py's defaults; the policy's actions are unaffected by the
-    # reward at inference time.)
+    # and the SUMMARY reflect the shaped reward the model was trained on, AND in the
+    # same wrist clamp so the wrist actions are constrained exactly as during training
+    # (without it, a clamp-trained policy's unconstrained wrist could dump the cube at
+    # inference and misrepresent the learned behaviour). Wrapper defaults match
+    # train.py's defaults.
     env = PotentialShapedReorientationReward(OrcaHandRightCubeOrientation(render_mode="human"))
+    env = WristClampWrapper(env)
 
     mode_label = "interactive" if args.interactive else "non-interactive"
     print(f"\nRunning {args.episodes} episodes in {mode_label} mode at {step_delay}s per step.\n")

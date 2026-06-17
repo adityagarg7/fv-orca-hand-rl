@@ -49,6 +49,18 @@ environment (`OrcaHandRightCubeOrientation._get_reward`).
   finger manipulation is learned. Flags: `--gravity-start/--gravity-final/
   --gravity-success-threshold/--gravity-step/--gravity-min-episodes` (set start ==
   final to disable). Gravity is set live on MuJoCo via `model.opt.gravity`.
+- `action_wrappers.py` — **wrist clamp** (`WristClampWrapper`). The wrist-dump cheat is
+  *geometric* (it works at any gravity if the palm can tilt far enough), so the gravity
+  curriculum only slows it and a reward penalty on the wrist froze the policy. This
+  wrapper instead hard-clips the wrist actuator (index 0 of the action vector) to a
+  narrow band around its neutral palm-up angle — captured from the wrist joint angle at
+  each `reset()` — so the policy physically can't flex the wrist far enough to dump the
+  cube, without any penalty. It is the **outermost** wrapper in `make_env` (clips the
+  action before any inner wrapper/env), doesn't change the action-space dimension, and is
+  applied in `render_policy.py` too so a clamp-trained policy is evaluated under the same
+  constraint. Flag: `--wrist-band` (half-width in radians, default 0.15). The gravity
+  curriculum is kept alongside as a genuine learning aid (easier early reorientation),
+  no longer relied on as the anti-cheat.
 - `train.py` — PPO entrypoint, all knobs are CLI flags.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).
