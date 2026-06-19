@@ -90,7 +90,24 @@ class CurriculumCallback(BaseCallback):
                   f"| steps={self.curriculum.chapter_steps:,}"
                   f"/{self.curriculum.total_steps:,}")
 
-        # ── Auto-promotion check ────────────────────────────────────
+        # ── Final chapter completion check (MUST be before promotion) ──
+        # This is separate from should_promote() because should_promote()
+        # returns False for the final chapter (nothing to promote to).
+        if self.curriculum.is_final_chapter:
+            target = self.curriculum.current_chapter.promotion_threshold
+            if (len(self.curriculum._success_history) >= self.curriculum.ROLLING_WINDOW
+                    and self.curriculum.rolling_success_rate >= target):
+                print(f"\n🏆 CURRICULUM COMPLETE! Final success rate: "
+                      f"{self.curriculum.rolling_success_rate:.1%}")
+                if wandb.run is not None:
+                    wandb.log({
+                        "curriculum/completed": 1,
+                        "curriculum/final_success_rate": self.curriculum.rolling_success_rate,
+                    }, step=self.num_timesteps)
+                self._save_checkpoint("final")
+                return False  # Stop training
+
+        # ── Auto-promotion check (chapters 1-4 only) ────────────────
         if self.curriculum.should_promote():
             # Log promotion event to W&B
             if wandb.run is not None:
@@ -115,15 +132,6 @@ class CurriculumCallback(BaseCallback):
             print(f"  ⚙️  Updated hyperparams: lr={new_ch.lr}, "
                   f"epochs={new_ch.n_epochs}, batch={new_ch.batch_size}, "
                   f"ent_coef={new_ch.ent_coef}")
-
-            # Check if we've completed the final chapter
-            if self.curriculum.is_final_chapter:
-                target = self.curriculum.current_chapter.promotion_threshold
-                if self.curriculum.rolling_success_rate >= target:
-                    print(f"\n🏆 CURRICULUM COMPLETE! Final success rate: "
-                          f"{self.curriculum.rolling_success_rate:.1%}")
-                    self._save_checkpoint("final")
-                    return False  # Stop training
 
         # ── Periodic checkpoint ─────────────────────────────────────
         if (self.num_timesteps - self._last_save_step) >= self.save_every:
@@ -237,7 +245,7 @@ def main():
 
     # ── Create vectorized environment ────────────────────────────────
     env = make_vec_env(make_env, n_envs=args.n_envs)
-    tb_dir = os.path.join(args.save_dir, f"tb_{run.id}")
+    tb_dir = os.path.join(args.save_dir, "tensorboard_logs")  # fixed name for resume continuity
 
     # ── Create or load PPO model ─────────────────────────────────────
     if resuming and os.path.exists(model_path):
