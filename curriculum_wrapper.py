@@ -27,7 +27,7 @@ class CurriculumWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env, curriculum: CurriculumManager):
         super().__init__(env)
         self.curriculum = curriculum
-        self._episode_success = False
+
         self._episode_steps = 0
         self._current_spawn_angle_deg = 0.0
         self._rng = np.random.default_rng()
@@ -90,7 +90,7 @@ class CurriculumWrapper(gym.Wrapper):
         # Sample spawn angle from curriculum
         angle_deg = self.curriculum.sample_spawn_angle_deg()
         self._current_spawn_angle_deg = angle_deg
-        self._episode_success = False
+
         self._episode_steps = 0
 
         # Convert to quaternion with RANDOM tilt axis
@@ -118,14 +118,17 @@ class CurriculumWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         self._episode_steps += 1
 
-        # Track if this episode ever achieved success
-        if info.get("is_success", False):
-            self._episode_success = True
+        # Track success at END of episode only (not "ever succeeded").
+        # The old "any-step" metric was too lenient — the cube would
+        # momentarily wobble through the success zone on easy chapters,
+        # giving false 100% success rates and premature promotion.
+        # Now the agent must HOLD the orientation at episode end.
+        episode_success_at_end = info.get("is_success", False)
 
         # On episode end, record result for curriculum
         if terminated or truncated:
             self.curriculum.record_episode(
-                success=self._episode_success,
+                success=episode_success_at_end,
                 steps_in_episode=self._episode_steps,
             )
 
