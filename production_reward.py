@@ -177,7 +177,11 @@ class ProductionRewardWrapper(gym.Wrapper):
             stability = self.stability_floor + (1.0 - self.stability_floor) * np.exp(
                 -total_vel / self.stability_sigma
             )
-            r_success = self.success_bonus * stability
+            # Palm rest factor: must be resting on the palm (pos_error ~ 0) to get the bonus.
+            # If the cube is lifted or drifts away, this exponentially drops to 0.
+            palm_rest_factor = np.exp(-pos_error / self.pos_sigma)
+            
+            r_success = self.success_bonus * stability * palm_rest_factor
             self._total_successes += 1
 
         # Termination: end episode on drop only. Do NOT terminate on success —
