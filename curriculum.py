@@ -86,7 +86,8 @@ class CurriculumManager:
 
     ROLLING_WINDOW = 200           # episodes for success rate calc
     MIN_STEPS_BEFORE_PROMOTE = 100_000   # min steps before allowing promotion
-    MAX_STEPS_PER_CHAPTER = 2_000_000    # force-promote with warning
+    # NO force-promotion. Agent stays on a chapter until it genuinely
+    # hits the threshold. Promoting below the mark destroys learning.
 
     def __init__(self, chapters: list[ChapterConfig] | None = None):
         self.chapters = chapters or CHAPTERS
@@ -158,16 +159,8 @@ class CurriculumManager:
         if self._chapter_steps < self.MIN_STEPS_BEFORE_PROMOTE:
             return False
 
-        # Check success rate
+        # Check success rate — this is the ONLY way to promote
         if self.rolling_success_rate >= self.current_chapter.promotion_threshold:
-            return True
-
-        # Force-promote if stuck too long (with warning)
-        if self._chapter_steps >= self.MAX_STEPS_PER_CHAPTER:
-            print(f"\n⚠️  FORCE-PROMOTING from {self.current_chapter.name} "
-                  f"after {self._chapter_steps:,} steps "
-                  f"(success_rate={self.rolling_success_rate:.2%} < "
-                  f"threshold={self.current_chapter.promotion_threshold:.0%})")
             return True
 
         return False

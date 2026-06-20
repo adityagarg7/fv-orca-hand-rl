@@ -19,7 +19,6 @@ The script will auto-resume if it finds existing checkpoints in --save-dir.
 """
 
 import argparse
-import glob
 import os
 import sys
 
@@ -28,6 +27,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 import wandb
+from wandb.integration.sb3 import WandbCallback
 
 from orca_sim import OrcaHandRightCubeOrientation
 from production_reward import ProductionRewardWrapper
@@ -37,8 +37,8 @@ from curriculum_wrapper import CurriculumWrapper
 
 # ── Shared curriculum manager (accessible by all parallel envs) ──────
 # We use a single global instance so all 4 vec-envs share the same
-# curriculum state.  This is safe because SB3's SubprocVecEnv copies
-# the env at creation time, but DummyVecEnv (our default) shares memory.
+# curriculum state.  This is safe because SB3's DummyVecEnv (our default)
+# shares memory.  Do NOT use SubprocVecEnv with this architecture.
 _CURRICULUM_MANAGER: CurriculumManager | None = None
 
 
@@ -59,7 +59,12 @@ def make_env():
 # ── Callbacks ────────────────────────────────────────────────────────
 
 class CurriculumCallback(BaseCallback):
-    """Handles auto-promotion, checkpointing, and W&B logging."""
+    """Handles auto-promotion, checkpointing, and W&B logging.
+
+    IMPORTANT: Promotion happens ONLY when rolling success rate >= threshold.
+    There is NO force-promotion. The agent stays on a chapter until it
+    genuinely masters it.
+    """
 
     def __init__(self, curriculum: CurriculumManager, save_dir: str,
                  save_every: int = 100_000, log_freq: int = 8_192):
@@ -69,7 +74,6 @@ class CurriculumCallback(BaseCallback):
         self.save_every = save_every
         self.log_freq = log_freq
         self._last_save_step = 0
-        self._last_promotion_check = 0
 
     def _on_step(self) -> bool:
         # Track steps in curriculum
@@ -108,6 +112,7 @@ class CurriculumCallback(BaseCallback):
                 return False  # Stop training
 
         # ── Auto-promotion check (chapters 1-4 only) ────────────────
+        # ONLY promotes when rolling_success_rate >= threshold. Period.
         if self.curriculum.should_promote():
             # Log promotion event to W&B
             if wandb.run is not None:
@@ -163,24 +168,6 @@ class CurriculumCallback(BaseCallback):
         print(f"  💾 Checkpoint saved ({reason}): {self.save_dir}")
 
 
-class ProgressLogger(BaseCallback):
-    """Print reward breakdown periodically."""
-
-    def __init__(self, log_freq=200_000):
-        super().__init__()
-        self.log_freq = log_freq
-
-    def _on_step(self):
-        if self.n_calls % self.log_freq == 0:
-            for info in self.locals.get("infos", []):
-                if "reward_breakdown" in info:
-                    parts = " | ".join(f"{k}={v:.2f}"
-                                       for k, v in info["reward_breakdown"].items())
-                    print(f"  [step {self.num_timesteps:>10,d}] {parts}")
-                    break
-        return True
-
-
 # ── Main ─────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -217,7 +204,7 @@ def main():
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
         reward="ProductionRewardWrapper-v1.1",
-        curriculum="5-chapter-progressive",
+        curriculum="5-chapter-progressive-NO-force-promote",
         starting_chapter=ch.name,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
         n_steps=2048, batch_size=ch.batch_size, n_epochs=ch.n_epochs,
@@ -229,11 +216,11 @@ def main():
     run_name = args.run_name or f"curriculum-{ch.name}"
     run = wandb.init(project=args.project, entity=args.entity,
                      name=run_name, config=config,
-                     sync_tensorboard=True, save_code=True,
+                     save_code=True,
                      resume="allow" if resuming else None)
 
     print(f"\n{'='*60}")
-    print(f"  ORCA Curriculum Training")
+    print(f"  ORCA Curriculum Training (NO force-promotion)")
     print(f"  Run: {run.name} ({run.id})")
     print(f"  Chapter: {ch.name} (angles {ch.angle_min_deg}°–{ch.angle_max_deg}°)")
     print(f"  Target: {ch.promotion_threshold:.0%} success rate")
@@ -245,13 +232,11 @@ def main():
 
     # ── Create vectorized environment ────────────────────────────────
     env = make_vec_env(make_env, n_envs=args.n_envs)
-    tb_dir = os.path.join(args.save_dir, "tensorboard_logs")  # fixed name for resume continuity
 
     # ── Create or load PPO model ─────────────────────────────────────
     if resuming and os.path.exists(model_path):
         print(f"📂 Resuming PPO model from {model_path}")
-        model = PPO.load(model_path, env=env, device=args.device,
-                         tensorboard_log=tb_dir)
+        model = PPO.load(model_path, env=env, device=args.device)
         # Apply current chapter's hyperparameters
         model.learning_rate = ch.lr
         model.n_epochs = ch.n_epochs
@@ -260,7 +245,7 @@ def main():
     else:
         model = PPO(
             "MlpPolicy", env, verbose=1,
-            device=args.device, tensorboard_log=tb_dir,
+            device=args.device,
             n_steps=2048, batch_size=ch.batch_size,
             n_epochs=ch.n_epochs, learning_rate=ch.lr,
             gamma=0.99, gae_lambda=0.95, clip_range=0.2,
@@ -277,16 +262,21 @@ def main():
           f"(already completed {curriculum.total_steps:,})\n")
 
     # ── Train! ───────────────────────────────────────────────────────
+    # WandbCallback directly logs ALL SB3 metrics (rollout/success_rate,
+    # train/loss, train/entropy_loss, etc.) to your W&B dashboard.
+    # This is the OFFICIAL way — much more reliable than sync_tensorboard.
     callbacks = [
+        WandbCallback(
+            model_save_path=None,    # we handle saving ourselves
+            verbose=2,               # log all SB3 metrics
+        ),
         CurriculumCallback(curriculum, args.save_dir,
                            save_every=args.save_every),
-        ProgressLogger(),
     ]
 
     model.learn(
         total_timesteps=remaining,
         callback=callbacks,
-        tb_log_name="curriculum",
         reset_num_timesteps=not resuming,
     )
 
