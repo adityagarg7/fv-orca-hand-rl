@@ -40,42 +40,42 @@ class ChapterConfig:
 # ── 5-chapter progressive difficulty ─────────────────────────────────
 # Design principles:
 #   1. Overlapping bands to prevent distribution shift / catastrophic forgetting.
-#   2. ALL thresholds are 95%.
+#   2. ALL thresholds are 80%.
 #   3. Continuous uniform sampling within the bands.
 #   4. Ch1 starts strictly at 16° (outside the 15° success zone).
 CHAPTERS = [
     ChapterConfig(
         name="ch1_small_tilt",
         angle_min_deg=16,   angle_max_deg=50,
-        promotion_threshold=0.95,
-        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.01,
+        promotion_threshold=0.80,
+        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.002,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch2_medium_tilt",
         angle_min_deg=40,  angle_max_deg=90,
-        promotion_threshold=0.95,
+        promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.005,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch3_large_tilt",
         angle_min_deg=80,  angle_max_deg=130,
-        promotion_threshold=0.95,
+        promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.001,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch4_near_flip",
         angle_min_deg=120, angle_max_deg=160,
-        promotion_threshold=0.95,
+        promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch5_full_flip",
         angle_min_deg=150, angle_max_deg=180,
-        promotion_threshold=0.95,
+        promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.0001,
         success_bonus=100.0,
     ),
