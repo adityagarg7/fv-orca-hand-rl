@@ -37,38 +37,65 @@ class ChapterConfig:
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
-# ── 5-chapter progressive difficulty ─────────────────────────────────
+# ── 8-chapter progressive difficulty ─────────────────────────────────
+# Design principles:
+#   1. Each chapter spans ~20-25° (small enough to learn reliably)
+#   2. ALL thresholds are 95% (no passing below marks)
+#   3. Overlapping bands prevent catastrophic forgetting at transitions
+#   4. Ch1 uses higher LR + entropy for fast exploration on easy task
+#   5. Later chapters use lower LR for fine-tuning
 CHAPTERS = [
     ChapterConfig(
-        name="ch1_almost_solved",
-        angle_min_deg=10,  angle_max_deg=30,
-        promotion_threshold=0.97,
+        name="ch1_near_solved",
+        angle_min_deg=5,   angle_max_deg=20,
+        promotion_threshold=0.95,
         lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.01,
         success_bonus=100.0,
     ),
     ChapterConfig(
-        name="ch2_quarter_turn",
-        angle_min_deg=30,  angle_max_deg=60,
+        name="ch2_small_tilt",
+        angle_min_deg=15,  angle_max_deg=40,
+        promotion_threshold=0.95,
+        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.005,
+        success_bonus=100.0,
+    ),
+    ChapterConfig(
+        name="ch3_quarter_turn",
+        angle_min_deg=30,  angle_max_deg=55,
         promotion_threshold=0.95,
         lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.005,
         success_bonus=100.0,
     ),
     ChapterConfig(
-        name="ch3_half_turn",
-        angle_min_deg=60,  angle_max_deg=110,
-        promotion_threshold=0.93,
+        name="ch4_moderate",
+        angle_min_deg=45,  angle_max_deg=75,
+        promotion_threshold=0.95,
+        lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.003,
+        success_bonus=120.0,
+    ),
+    ChapterConfig(
+        name="ch5_half_turn",
+        angle_min_deg=65,  angle_max_deg=100,
+        promotion_threshold=0.95,
         lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.001,
         success_bonus=120.0,
     ),
     ChapterConfig(
-        name="ch4_three_quarter",
-        angle_min_deg=100, angle_max_deg=150,
+        name="ch6_large_rotation",
+        angle_min_deg=90,  angle_max_deg=130,
         promotion_threshold=0.95,
         lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.001,
         success_bonus=150.0,
     ),
     ChapterConfig(
-        name="ch5_full_task",
+        name="ch7_near_flip",
+        angle_min_deg=120, angle_max_deg=160,
+        promotion_threshold=0.95,
+        lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.001,
+        success_bonus=150.0,
+    ),
+    ChapterConfig(
+        name="ch8_full_flip",
         angle_min_deg=150, angle_max_deg=180,
         promotion_threshold=0.95,    # FINAL TARGET: 95%+
         lr=1e-4, n_epochs=7, batch_size=512, ent_coef=0.001,
