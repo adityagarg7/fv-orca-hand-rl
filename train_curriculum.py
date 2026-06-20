@@ -79,6 +79,15 @@ class CurriculumCallback(BaseCallback):
         # Track steps in curriculum
         self.curriculum.record_steps(self.training_env.num_envs)
 
+        # ── CRITICAL FIX: Sync curriculum success rate with SB3 ──
+        # Due to environment wrapper timing differences, the curriculum's internal
+        # success history diverged from SB3's logged success rate.
+        # We now forcefully sync them by reading SB3's exact buffer.
+        if hasattr(self.model, "ep_success_buffer") and len(self.model.ep_success_buffer) > 0:
+            real_sr = float(np.mean(self.model.ep_success_buffer))
+            # Override curriculum's history with the real SR
+            self.curriculum.override_success_rate(real_sr)
+
         # ── Periodic logging ────────────────────────────────────────
         if self.n_calls % (self.log_freq // self.training_env.num_envs) == 0:
             status = self.curriculum.status_dict()

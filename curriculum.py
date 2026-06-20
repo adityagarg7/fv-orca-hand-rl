@@ -47,14 +47,14 @@ class ChapterConfig:
 CHAPTERS = [
     ChapterConfig(
         name="ch1_near_solved",
-        angle_min_deg=5,   angle_max_deg=20,
+        angle_min_deg=16,   angle_max_deg=30,
         promotion_threshold=0.95,
         lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.01,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch2_small_tilt",
-        angle_min_deg=15,  angle_max_deg=40,
+        angle_min_deg=25,  angle_max_deg=45,
         promotion_threshold=0.95,
         lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.005,
         success_bonus=100.0,
@@ -143,6 +143,8 @@ class CurriculumManager:
 
     @property
     def rolling_success_rate(self) -> float:
+        if hasattr(self, "_forced_success_rate"):
+            return self._forced_success_rate
         if len(self._success_history) == 0:
             return 0.0
         return sum(self._success_history) / len(self._success_history)
@@ -167,6 +169,10 @@ class CurriculumManager:
         self._success_history.append(success)
         self._chapter_episodes += 1
         self._total_episodes += 1
+
+    def override_success_rate(self, sr: float):
+        """Force the rolling success rate to exactly match an external value (SB3 buffer)."""
+        self._forced_success_rate = sr
 
     def record_steps(self, n_steps: int):
         """Record training steps taken."""
