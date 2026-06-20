@@ -173,8 +173,9 @@ class CurriculumCallback(BaseCallback):
 def parse_args():
     p = argparse.ArgumentParser(
         description="Curriculum training for ORCA cube reorientation.")
-    p.add_argument("--timesteps", type=int, default=10_000_000,
-                   help="Max total timesteps across all chapters.")
+    p.add_argument("--timesteps", type=int, default=50_000_000,
+                   help="Safety cap on total timesteps. The curriculum's own "
+                        "completion check (Ch5 >= 95%%) is the real stop condition.")
     p.add_argument("--n-envs", type=int, default=4)
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     p.add_argument("--save-dir", default="./checkpoints_curriculum",
