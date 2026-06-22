@@ -245,7 +245,8 @@ def parse_args():
     p.add_argument("--project", default="orca-cube-reorientation")
     p.add_argument("--entity", default="fourvectors")
     p.add_argument("--run-name", default=None)
-    p.add_argument("--upload-model", action="store_true")
+    p.add_argument("--subproc", action="store_true",
+                   help="Use SubprocVecEnv (true multiprocessing) instead of DummyVecEnv.")
     return p.parse_args()
 
 
@@ -296,14 +297,14 @@ def main():
     print(f"{'='*60}\n")
 
     # ── Create vectorized environment ───────────────────────────────
-    # SubprocVecEnv for true multiprocessing (each env in its own process).
-    # DummyVecEnv fallback for debugging (single process, sequential).
-    if args.n_envs > 1:
+    # DummyVecEnv: all envs in one process (Colab-safe, diversity benefit preserved).
+    # SubprocVecEnv: each env in its own process (needs --subproc flag, desktop only).
+    if args.subproc:
         env = SubprocVecEnv([make_env for _ in range(args.n_envs)])
         print(f"  🚀 Using SubprocVecEnv with {args.n_envs} parallel processes")
     else:
-        env = DummyVecEnv([make_env])
-        print(f"  Using DummyVecEnv (single process)")
+        env = DummyVecEnv([make_env for _ in range(args.n_envs)])
+        print(f"  🔄 Using DummyVecEnv with {args.n_envs} sequential envs (Colab-safe)")
 
     # ── Create or load PPO model ─────────────────────────────────────
     if resuming and os.path.exists(model_path):
