@@ -34,6 +34,7 @@ class ChapterConfig:
     n_epochs: int               # PPO update epochs
     batch_size: int             # PPO minibatch size
     ent_coef: float             # entropy coefficient
+    max_episode_steps: int = 200  # episode length (scaled per chapter)
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
@@ -48,36 +49,36 @@ CHAPTERS = [
         name="ch1_small_tilt",
         angle_min_deg=16,   angle_max_deg=50,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.002,
-        success_bonus=100.0,
+        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.002,
+        max_episode_steps=200, success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch2_medium_tilt",
         angle_min_deg=40,  angle_max_deg=90,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.001,
-        success_bonus=100.0,
+        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
+        max_episode_steps=300, success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch3_large_tilt",
         angle_min_deg=80,  angle_max_deg=130,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
-        success_bonus=100.0,
+        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
+        max_episode_steps=400, success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch4_near_flip",
         angle_min_deg=120, angle_max_deg=160,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
-        success_bonus=100.0,
+        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
+        max_episode_steps=500, success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch5_full_flip",
         angle_min_deg=150, angle_max_deg=180,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
-        success_bonus=100.0,
+        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
+        max_episode_steps=600, success_bonus=100.0,
     ),
 ]
 

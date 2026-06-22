@@ -59,12 +59,25 @@ def make_env():
 # ── Callbacks ────────────────────────────────────────────────────────
 
 class CurriculumCallback(BaseCallback):
-    """Handles auto-promotion, checkpointing, and W&B logging.
+    """Handles auto-promotion, checkpointing, adaptive hyperparameters, and W&B logging.
 
     IMPORTANT: Promotion happens ONLY when rolling success rate >= threshold.
     There is NO force-promotion. The agent stays on a chapter until it
     genuinely masters it.
+
+    Research-backed adaptive mechanisms (AE-PPO, DexPBT):
+      1. Clip range warm restart: widens to 0.3 at promotion, decays to 0.2 over 200k steps.
+      2. Adaptive entropy: monitors action std, auto-adjusts ent_coef to keep std in [0.7, 1.1].
     """
+
+    CLIP_WARMUP_STEPS = 200_000    # steps to decay clip range after promotion
+    CLIP_RANGE_HIGH = 0.3          # widened clip range at promotion
+    CLIP_RANGE_LOW = 0.2           # default clip range
+    STD_HIGH = 1.1                 # reduce entropy above this
+    STD_LOW = 0.7                  # increase entropy below this
+    ENT_COEF_MIN = 0.0001          # entropy floor
+    ENT_COEF_MAX = 0.01            # entropy ceiling
+    ENT_ADJUST_RATE = 0.9          # multiplicative adjustment factor
 
     def __init__(self, curriculum: CurriculumManager, save_dir: str,
                  save_every: int = 100_000, log_freq: int = 8_192):
@@ -74,34 +87,56 @@ class CurriculumCallback(BaseCallback):
         self.save_every = save_every
         self.log_freq = log_freq
         self._last_save_step = 0
+        self._clip_warmup_remaining = 0  # steps left in clip range decay
 
     def _on_step(self) -> bool:
         # Track steps in curriculum
         self.curriculum.record_steps(self.training_env.num_envs)
 
         # ── CRITICAL FIX: Sync curriculum success rate with SB3 ──
-        # Due to environment wrapper timing differences, the curriculum's internal
-        # success history diverged from SB3's logged success rate.
-        # We now forcefully sync them by reading SB3's exact buffer.
         if hasattr(self.model, "ep_success_buffer") and len(self.model.ep_success_buffer) > 0:
             real_sr = float(np.mean(self.model.ep_success_buffer))
-            # Override curriculum's history with the real SR
             self.curriculum.override_success_rate(real_sr)
 
-        # ── Periodic logging ────────────────────────────────────────
+        # ── Adaptive clip range decay (fast timescale) ───────────
+        if self._clip_warmup_remaining > 0:
+            self._clip_warmup_remaining -= self.training_env.num_envs
+            progress = max(0.0, self._clip_warmup_remaining / self.CLIP_WARMUP_STEPS)
+            new_clip = self.CLIP_RANGE_LOW + (self.CLIP_RANGE_HIGH - self.CLIP_RANGE_LOW) * progress
+            self.model.clip_range = lambda _: new_clip  # SB3 expects a callable
+
+        # ── Periodic logging + adaptive entropy (slow timescale) ─
         if self.n_calls % (self.log_freq // self.training_env.num_envs) == 0:
             status = self.curriculum.status_dict()
+
+            # Adaptive entropy: read action std from the policy
+            current_std = self._get_action_std()
+            if current_std is not None:
+                if current_std > self.STD_HIGH:
+                    self.model.ent_coef *= self.ENT_ADJUST_RATE  # reduce noise
+                elif current_std < self.STD_LOW:
+                    self.model.ent_coef /= self.ENT_ADJUST_RATE  # increase exploration
+                self.model.ent_coef = max(self.ENT_COEF_MIN, min(self.ENT_COEF_MAX, self.model.ent_coef))
+                status["adaptive/action_std"] = current_std
+                status["adaptive/ent_coef"] = self.model.ent_coef
+
+            # Log current clip range
+            clip_val = self.model.clip_range(1.0) if callable(self.model.clip_range) else self.model.clip_range
+            status["adaptive/clip_range"] = clip_val
+
             if wandb.run is not None:
                 wandb.log(status, step=self.num_timesteps)
 
             # Print compact status
             ch = self.curriculum.current_chapter
+            std_str = f" std={current_std:.2f}" if current_std else ""
             print(f"  📊 Ch{self.curriculum.current_chapter_idx + 1} "
                   f"[{ch.name}] "
                   f"sr={self.curriculum.rolling_success_rate:.1%} "
                   f"(need {ch.promotion_threshold:.0%}) "
                   f"| steps={self.curriculum.chapter_steps:,}"
-                  f"/{self.curriculum.total_steps:,}")
+                  f"/{self.curriculum.total_steps:,}"
+                  f"{std_str} ent={self.model.ent_coef:.4f}")
 
         # ── Final chapter completion check (MUST be before promotion) ──
         # This is separate from should_promote() because should_promote()
@@ -136,6 +171,12 @@ class CurriculumCallback(BaseCallback):
 
             # Save checkpoint at promotion
             self._save_checkpoint("promotion")
+
+            # ── Adaptive clip range warm restart (AE-PPO) ────────
+            self._clip_warmup_remaining = self.CLIP_WARMUP_STEPS
+            self.model.clip_range = lambda _: self.CLIP_RANGE_HIGH
+            print(f"  🔧 Clip range warm restart: {self.CLIP_RANGE_HIGH} → "
+                  f"{self.CLIP_RANGE_LOW} over {self.CLIP_WARMUP_STEPS:,} steps")
 
             # Update PPO hyperparameters for new chapter
             new_ch = self.curriculum.current_chapter
@@ -176,6 +217,14 @@ class CurriculumCallback(BaseCallback):
 
         print(f"  💾 Checkpoint saved ({reason}): {self.save_dir}")
 
+    def _get_action_std(self) -> float | None:
+        """Read the current action standard deviation from the PPO policy."""
+        try:
+            log_std = self.model.policy.log_std
+            return float(log_std.exp().mean().item())
+        except AttributeError:
+            return None
+
 
 # ── Main ─────────────────────────────────────────────────────────────
 
@@ -213,13 +262,17 @@ def main():
     ch = curriculum.current_chapter
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
-        reward="ProductionRewardWrapper-v1.1",
+        reward="ProductionRewardWrapper-v1.2-relaxed-pos",
         curriculum="5-chapter-progressive-NO-force-promote",
+        net_arch=[256, 256],
+        adaptive_clip_range=True, adaptive_entropy=True,
+        pos_sigma=0.05,
         starting_chapter=ch.name,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
-        n_steps=2048, batch_size=ch.batch_size, n_epochs=ch.n_epochs,
+        n_steps=4096, batch_size=ch.batch_size, n_epochs=ch.n_epochs,
         learning_rate=ch.lr, gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=ch.ent_coef, max_grad_norm=0.5,
+        max_episode_steps=ch.max_episode_steps,
         resumed=resuming,
     )
 
@@ -256,7 +309,8 @@ def main():
         model = PPO(
             "MlpPolicy", env, verbose=1,
             device=args.device,
-            n_steps=2048, batch_size=ch.batch_size,
+            policy_kwargs=dict(net_arch=[256, 256]),
+            n_steps=4096, batch_size=ch.batch_size,
             n_epochs=ch.n_epochs, learning_rate=ch.lr,
             gamma=0.99, gae_lambda=0.95, clip_range=0.2,
             ent_coef=ch.ent_coef, max_grad_norm=0.5,

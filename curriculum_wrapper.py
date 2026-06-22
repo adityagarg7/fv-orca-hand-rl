@@ -92,6 +92,7 @@ class CurriculumWrapper(gym.Wrapper):
         self._current_spawn_angle_deg = angle_deg
 
         self._episode_steps = 0
+        self._max_episode_steps = self.curriculum.current_chapter.max_episode_steps
 
         # Convert to quaternion with RANDOM tilt axis
         cube_quat = self._angle_to_random_quat(angle_deg)
@@ -117,6 +118,11 @@ class CurriculumWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         self._episode_steps += 1
+
+        # Override truncation with chapter-specific episode length.
+        # Later chapters get more steps for larger rotations.
+        if not terminated and self._episode_steps >= self._max_episode_steps:
+            truncated = True
 
         # Track success at END of episode only (not "ever succeeded").
         # The old "any-step" metric was too lenient — the cube would

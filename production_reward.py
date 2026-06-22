@@ -51,7 +51,7 @@ class ProductionRewardWrapper(gym.Wrapper):
         progress_weight: float = 10.0,
         # --- Position keeping (keep cube centred) ---
         pos_weight: float = 0.5,
-        pos_sigma: float = 0.03,        # metres
+        pos_sigma: float = 0.05,        # metres (relaxed from 0.03 for manipulation room)
         # --- Fingertip proximity (finger-joint tracking) ---
         finger_weight: float = 0.3,
         finger_sigma: float = 0.02,     # metres
