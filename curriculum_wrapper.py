@@ -32,6 +32,19 @@ class CurriculumWrapper(gym.Wrapper):
         self._current_spawn_angle_deg = 0.0
         self._rng = np.random.default_rng()
 
+    def set_chapter_idx(self, idx: int):
+        """Called by main process callback to sync chapter after promotion.
+
+        SubprocVecEnv runs each env in a separate process, so the main
+        process broadcasts chapter changes via env_method('set_chapter_idx', idx).
+        This updates the subprocess's local CurriculumManager so it samples
+        spawn angles from the correct chapter.
+        """
+        self.curriculum._chapter_idx = idx
+        self.curriculum._chapter_steps = 0
+        self.curriculum._chapter_episodes = 0
+        self.curriculum._success_history.clear()
+
     def _find_reward_wrapper(self) -> ProductionRewardWrapper | None:
         """Walk the wrapper chain to find the ProductionRewardWrapper."""
         e = self.env

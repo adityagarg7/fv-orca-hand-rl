@@ -38,12 +38,16 @@ class ChapterConfig:
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
-# ── 5-chapter progressive difficulty ─────────────────────────────────
+# ── 8-chapter progressive difficulty (v6) ────────────────────────────
 # Design principles:
 #   1. Overlapping bands to prevent distribution shift / catastrophic forgetting.
 #   2. ALL thresholds are 80%.
 #   3. Continuous uniform sampling within the bands.
 #   4. Ch1 starts strictly at 16° (outside the 15° success zone).
+#   5. (v6) Finer sub-chapters for Ch2 and Ch3 to eliminate the
+#      "phase transition" cliff between nudging and rolling skills.
+#      Each sub-chapter is a ~20° band — small enough to learn with
+#      limited parallel environments.
 CHAPTERS = [
     ChapterConfig(
         name="ch1_small_tilt",
@@ -52,19 +56,42 @@ CHAPTERS = [
         lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.002,
         max_episode_steps=200, success_bonus=100.0,
     ),
+    # ── Ch2 split into 3 sub-chapters (was 40°–90°) ──────────────────
     ChapterConfig(
-        name="ch2_medium_tilt",
-        angle_min_deg=40,  angle_max_deg=90,
+        name="ch2a_moderate_tilt",
+        angle_min_deg=40,  angle_max_deg=60,
+        promotion_threshold=0.80,
+        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
+        max_episode_steps=250, success_bonus=100.0,
+    ),
+    ChapterConfig(
+        name="ch2b_medium_tilt",
+        angle_min_deg=50,  angle_max_deg=75,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
         max_episode_steps=300, success_bonus=100.0,
     ),
     ChapterConfig(
-        name="ch3_large_tilt",
-        angle_min_deg=80,  angle_max_deg=130,
+        name="ch2c_steep_tilt",
+        angle_min_deg=65,  angle_max_deg=90,
+        promotion_threshold=0.80,
+        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
+        max_episode_steps=350, success_bonus=100.0,
+    ),
+    # ── Ch3 split into 2 sub-chapters (was 80°–130°) ─────────────────
+    ChapterConfig(
+        name="ch3a_side_roll",
+        angle_min_deg=80,  angle_max_deg=110,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
         max_episode_steps=400, success_bonus=100.0,
+    ),
+    ChapterConfig(
+        name="ch3b_deep_roll",
+        angle_min_deg=100, angle_max_deg=130,
+        promotion_threshold=0.80,
+        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
+        max_episode_steps=450, success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch4_near_flip",

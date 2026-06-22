@@ -24,7 +24,7 @@ import sys
 
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 import wandb
 from wandb.integration.sb3 import WandbCallback
@@ -35,25 +35,20 @@ from curriculum import CurriculumManager, CHAPTERS
 from curriculum_wrapper import CurriculumWrapper
 
 
-# ── Shared curriculum manager (accessible by all parallel envs) ──────
-# We use a single global instance so all 4 vec-envs share the same
-# curriculum state.  This is safe because SB3's DummyVecEnv (our default)
-# shares memory.  Do NOT use SubprocVecEnv with this architecture.
-_CURRICULUM_MANAGER: CurriculumManager | None = None
-
-
-def get_curriculum() -> CurriculumManager:
-    global _CURRICULUM_MANAGER
-    if _CURRICULUM_MANAGER is None:
-        _CURRICULUM_MANAGER = CurriculumManager()
-    return _CURRICULUM_MANAGER
+# ── Environment factory (SubprocVecEnv compatible) ────────────────────
+# Each subprocess gets its OWN CurriculumManager instance. These are
+# "read-only" copies used only for sampling spawn angles and tracking
+# per-env episode success. The MAIN PROCESS callback is the sole
+# authority for promotion decisions and broadcasts chapter changes
+# to all subprocesses via env_method().
 
 
 def make_env():
     """Create the full env stack: OrcaSim → RewardWrapper → CurriculumWrapper."""
+    cm = CurriculumManager()  # each subprocess gets its own instance
     base = OrcaHandRightCubeOrientation(render_mode=None)
     rewarded = ProductionRewardWrapper(base)
-    return CurriculumWrapper(rewarded, get_curriculum())
+    return CurriculumWrapper(rewarded, cm)
 
 
 # ── Callbacks ────────────────────────────────────────────────────────
@@ -188,6 +183,13 @@ class CurriculumCallback(BaseCallback):
                   f"epochs={new_ch.n_epochs}, batch={new_ch.batch_size}, "
                   f"ent_coef={new_ch.ent_coef}")
 
+            # ── Broadcast chapter change to all subprocess environments ──
+            # SubprocVecEnv runs each env in a separate process. We must
+            # tell each one to update its local CurriculumManager.
+            new_idx = self.curriculum.current_chapter_idx
+            self.training_env.env_method("set_chapter_idx", new_idx)
+            print(f"  📡 Broadcast chapter {new_idx} to {self.training_env.num_envs} envs")
+
         # ── Periodic checkpoint ─────────────────────────────────────
         if (self.num_timesteps - self._last_save_step) >= self.save_every:
             self._save_checkpoint("periodic")
@@ -234,7 +236,7 @@ def parse_args():
     p.add_argument("--timesteps", type=int, default=50_000_000,
                    help="Safety cap on total timesteps. The curriculum's own "
                         "completion check (Ch5 >= 95%%) is the real stop condition.")
-    p.add_argument("--n-envs", type=int, default=4)
+    p.add_argument("--n-envs", type=int, default=32)
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     p.add_argument("--save-dir", default="./checkpoints_curriculum",
                    help="Directory for checkpoints (use Google Drive path on Colab).")
@@ -250,8 +252,8 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # ── Initialize curriculum ────────────────────────────────────────
-    curriculum = get_curriculum()
+    # ── Initialize curriculum (main process authority) ───────────────
+    curriculum = CurriculumManager()
 
     # ── Check for existing checkpoint (crash recovery) ───────────────
     curriculum_state_path = os.path.join(args.save_dir, "curriculum_state.json")
@@ -263,13 +265,13 @@ def main():
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
         reward="ProductionRewardWrapper-v1.2-relaxed-pos",
-        curriculum="5-chapter-progressive-NO-force-promote",
+        curriculum="8-chapter-finer-progressive-v6",
         net_arch=[256, 256],
         adaptive_clip_range=True, adaptive_entropy=True,
         pos_sigma=0.05,
         starting_chapter=ch.name,
         total_timesteps=args.timesteps, n_envs=args.n_envs,
-        n_steps=4096, batch_size=ch.batch_size, n_epochs=ch.n_epochs,
+        n_steps=2048, batch_size=ch.batch_size, n_epochs=ch.n_epochs,
         learning_rate=ch.lr, gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=ch.ent_coef, max_grad_norm=0.5,
         max_episode_steps=ch.max_episode_steps,
@@ -293,8 +295,15 @@ def main():
     print(f"  W&B: {run.url}")
     print(f"{'='*60}\n")
 
-    # ── Create vectorized environment ────────────────────────────────
-    env = make_vec_env(make_env, n_envs=args.n_envs)
+    # ── Create vectorized environment ───────────────────────────────
+    # SubprocVecEnv for true multiprocessing (each env in its own process).
+    # DummyVecEnv fallback for debugging (single process, sequential).
+    if args.n_envs > 1:
+        env = SubprocVecEnv([make_env for _ in range(args.n_envs)])
+        print(f"  🚀 Using SubprocVecEnv with {args.n_envs} parallel processes")
+    else:
+        env = DummyVecEnv([make_env])
+        print(f"  Using DummyVecEnv (single process)")
 
     # ── Create or load PPO model ─────────────────────────────────────
     if resuming and os.path.exists(model_path):
@@ -310,7 +319,7 @@ def main():
             "MlpPolicy", env, verbose=1,
             device=args.device,
             policy_kwargs=dict(net_arch=[256, 256]),
-            n_steps=4096, batch_size=ch.batch_size,
+            n_steps=2048, batch_size=ch.batch_size,
             n_epochs=ch.n_epochs, learning_rate=ch.lr,
             gamma=0.99, gae_lambda=0.95, clip_range=0.2,
             ent_coef=ch.ent_coef, max_grad_norm=0.5,
