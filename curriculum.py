@@ -55,14 +55,14 @@ CHAPTERS = [
         name="ch2_medium_tilt",
         angle_min_deg=40,  angle_max_deg=90,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.001,
+        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.001,
         success_bonus=100.0,
     ),
     ChapterConfig(
         name="ch3_large_tilt",
         angle_min_deg=80,  angle_max_deg=130,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
+        lr=3e-4, n_epochs=10, batch_size=256, ent_coef=0.0005,
         success_bonus=100.0,
     ),
     ChapterConfig(
