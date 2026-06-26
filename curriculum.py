@@ -38,74 +38,87 @@ class ChapterConfig:
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
-# ── 8-chapter progressive difficulty (v6) ────────────────────────────
+# ── 8-chapter progressive difficulty (v7 — Workstation Edition) ─────────────
 # Design principles:
-#   1. Overlapping bands to prevent distribution shift / catastrophic forgetting.
-#   2. ALL thresholds are 80%.
-#   3. Continuous uniform sampling within the bands.
-#   4. Ch1 starts strictly at 16° (outside the 15° success zone).
-#   5. (v6) Finer sub-chapters for Ch2 and Ch3 to eliminate the
-#      "phase transition" cliff between nudging and rolling skills.
-#      Each sub-chapter is a ~20° band — small enough to learn with
-#      limited parallel environments.
+#   1. Overlapping bands (~10° overlap) to prevent distribution shift.
+#   2. 80% promotion threshold on a 200-episode rolling window.
+#   3. Episode lengths scaled to the task complexity of each chapter.
+#   4. Batch sizes scaled to 64-env rollout (64 * 4096 = 262k steps/rollout).
+#   5. Ch2 split into 3 sub-chapters; Ch3 split into 2 — eliminates the
+#      phase-transition cliff between nudging (Ch1) and rolling (Ch3+).
+#   6. LR schedule: warm (3e-4) for early chapters, cool (1e-4) for late.
 CHAPTERS = [
+    # ── Chapter 1: Small tilt  (16°–50°) ──────────────────────────────
+    # Cube nearly upright. Task: learn basic finger contact + nudging.
     ChapterConfig(
         name="ch1_small_tilt",
         angle_min_deg=16,   angle_max_deg=50,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.002,
-        max_episode_steps=200, success_bonus=100.0,
-    ),
-    # ── Ch2 split into 3 sub-chapters (was 40°–90°) ──────────────────
-    ChapterConfig(
-        name="ch2a_moderate_tilt",
-        angle_min_deg=40,  angle_max_deg=60,
-        promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
-        max_episode_steps=250, success_bonus=100.0,
-    ),
-    ChapterConfig(
-        name="ch2b_medium_tilt",
-        angle_min_deg=50,  angle_max_deg=75,
-        promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
+        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.003,
         max_episode_steps=300, success_bonus=100.0,
     ),
+    # ── Chapter 2a: Moderate tilt  (40°–60°) ────────────────────────
+    # Bridge chapter: nudging transitions to controlled pushing.
+    ChapterConfig(
+        name="ch2a_moderate_tilt",
+        angle_min_deg=40,   angle_max_deg=62,
+        promotion_threshold=0.80,
+        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
+        max_episode_steps=350, success_bonus=120.0,
+    ),
+    # ── Chapter 2b: Medium tilt  (55°–78°) ──────────────────────────
+    # Agent must apply lateral force to initiate rolling motion.
+    ChapterConfig(
+        name="ch2b_medium_tilt",
+        angle_min_deg=55,   angle_max_deg=78,
+        promotion_threshold=0.80,
+        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
+        max_episode_steps=400, success_bonus=140.0,
+    ),
+    # ── Chapter 2c: Steep tilt  (68°–93°) ───────────────────────────
+    # Full rolling skill required. Cube approaching the side-flat position.
     ChapterConfig(
         name="ch2c_steep_tilt",
-        angle_min_deg=65,  angle_max_deg=90,
+        angle_min_deg=68,   angle_max_deg=93,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.001,
-        max_episode_steps=350, success_bonus=100.0,
+        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.0015,
+        max_episode_steps=450, success_bonus=160.0,
     ),
-    # ── Ch3 split into 2 sub-chapters (was 80°–130°) ─────────────────
+    # ── Chapter 3a: Side roll  (82°–115°) ───────────────────────────
+    # Cube mostly on its side. Coordinated multi-finger rolling.
     ChapterConfig(
         name="ch3a_side_roll",
-        angle_min_deg=80,  angle_max_deg=110,
+        angle_min_deg=82,   angle_max_deg=115,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
-        max_episode_steps=400, success_bonus=100.0,
+        lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
+        max_episode_steps=500, success_bonus=200.0,
     ),
+    # ── Chapter 3b: Deep roll  (105°–135°) ──────────────────────────
+    # Agent must push the cube past the equator (>90°). Hardest transition.
     ChapterConfig(
         name="ch3b_deep_roll",
-        angle_min_deg=100, angle_max_deg=130,
+        angle_min_deg=105,  angle_max_deg=135,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
-        max_episode_steps=450, success_bonus=100.0,
+        lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
+        max_episode_steps=550, success_bonus=250.0,
     ),
+    # ── Chapter 4: Near flip  (122°–163°) ───────────────────────────
+    # Cube nearly upside down. Agent must learn to re-catch at the apex.
     ChapterConfig(
         name="ch4_near_flip",
-        angle_min_deg=120, angle_max_deg=160,
+        angle_min_deg=122,  angle_max_deg=163,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
-        max_episode_steps=500, success_bonus=100.0,
+        lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0008,
+        max_episode_steps=650, success_bonus=300.0,
     ),
+    # ── Chapter 5: Full flip  (150°–180°) ───────────────────────────
+    # Full 180° reorientation. Graduation chapter.
     ChapterConfig(
         name="ch5_full_flip",
-        angle_min_deg=150, angle_max_deg=180,
+        angle_min_deg=150,  angle_max_deg=180,
         promotion_threshold=0.80,
-        lr=1e-4, n_epochs=10, batch_size=512, ent_coef=0.0005,
-        max_episode_steps=600, success_bonus=100.0,
+        lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0005,
+        max_episode_steps=800, success_bonus=400.0,
     ),
 ]
 
