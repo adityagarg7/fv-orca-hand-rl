@@ -241,6 +241,15 @@ class CurriculumManager:
         self._chapter_episodes = 0
         self._success_history.clear()
 
+        # CRITICAL: Clear forced success rate from the callback override.
+        # Without this, the stale 0.98 from Ch1 would persist and trigger
+        # instant promotion through Ch2→Ch3→...→Ch8 after just 100k steps
+        # each (MIN_STEPS_BEFORE_PROMOTE), without actually learning.
+        if hasattr(self, "_forced_success_rate"):
+            del self._forced_success_rate
+        if hasattr(self, "_forced_success_buffer_len"):
+            del self._forced_success_buffer_len
+
     # ── Persistence (crash-proof) ─────────────────────────────────────
 
     def save_state(self, path: str):
