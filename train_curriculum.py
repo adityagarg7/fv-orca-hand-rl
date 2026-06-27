@@ -57,6 +57,7 @@ import argparse
 import os
 import sys
 import time
+from collections import deque
 
 import numpy as np
 from stable_baselines3 import PPO
@@ -87,7 +88,9 @@ def make_env(start_chapter_idx: int = 0):
         base = OrcaHandRightCubeOrientation(render_mode=None)
         rewarded = ProductionRewardWrapper(base)
         env = CurriculumWrapper(rewarded, cm)
-        return Monitor(env)   # Monitor wraps for ep_rew_mean / ep_len_mean tracking
+        # info_keywords=("is_success",) tells Monitor to forward is_success
+        # into episode stats, which SB3 uses for rollout/success_rate logging.
+        return Monitor(env, info_keywords=("is_success",))
     return _init
 
 
@@ -117,6 +120,21 @@ class CurriculumCallback(BaseCallback):
     ENT_COEF_MAX    = 0.02         # entropy ceiling (prevents jitter)
     ENT_ADJUST_RATE = 0.92         # multiplicative adjustment per log interval
 
+    # ── Success tracking ───────────────────────────────────────────────────
+    # We maintain our OWN rolling success buffer in the callback (main
+    # process), because:
+    #   - SubprocVecEnv episodes complete in isolated OS processes, so the
+    #     main-process CurriculumManager's _success_history stays empty.
+    #   - SB3's ep_success_buffer is an internal attribute whose name and
+    #     availability varies across versions.  Relying on it is fragile.
+    #
+    # Instead, we scrape is_success directly from self.locals["infos"],
+    # which SB3 populates from the SubprocVecEnv return values on every
+    # step.  When an episode ends, SB3 stashes the terminal info in
+    # info["terminal_info"] or info["episode"], depending on the VecEnv
+    # auto-reset behavior.
+    SUCCESS_WINDOW = 200   # rolling window size (matches CurriculumManager)
+
     def __init__(
         self,
         curriculum: CurriculumManager,
@@ -133,6 +151,8 @@ class CurriculumCallback(BaseCallback):
         self._clip_warmup_remaining = 0
         self._run_start_time = time.time()
         self._reward_accum   = {}   # for rolling reward component averages
+        # Our own success tracking buffer (main process, immune to SubprocVecEnv isolation)
+        self._success_buffer: deque[bool] = deque(maxlen=self.SUCCESS_WINDOW)
 
     # ── Per-step logic ───────────────────────────────────────────────────────
 
@@ -142,13 +162,28 @@ class CurriculumCallback(BaseCallback):
         # Track steps in curriculum leader
         self.curriculum.record_steps(n_envs)
 
-        # ── Sync curriculum success rate with SB3's ep_success_buffer ───────
-        # SB3 maintains a deque of episode success flags from Monitor.
-        # We override the curriculum's rolling SR with SB3's value so both
-        # systems agree and promotion uses real episode outcomes.
-        if hasattr(self.model, "ep_success_buffer") and len(self.model.ep_success_buffer) > 0:
-            real_sr = float(np.mean(self.model.ep_success_buffer))
-            self.curriculum.override_success_rate(real_sr, len(self.model.ep_success_buffer))
+        # ── Scrape is_success from info dicts (SubprocVecEnv-safe) ──────────
+        # self.locals["infos"] is a list of info dicts, one per env.
+        # When an episode ends in a VecEnv, the env auto-resets and SB3
+        # stores the terminal step's info in either:
+        #   - info["terminal_info"] (SB3 ≥ 2.1 with new VecEnv API), or
+        #   - info["terminal_observation"] existing + info itself having is_success
+        # We check both paths for robustness.
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            # Check if this env just finished an episode
+            # SB3 VecEnv sets "episode" key (from Monitor) when episode ends
+            if "episode" in info:
+                # Episode just ended — check is_success
+                # Try terminal_info first (newer SB3), then fall back to info itself
+                terminal_info = info.get("terminal_info", info)
+                success = bool(terminal_info.get("is_success", False))
+                self._success_buffer.append(success)
+
+        # Push our tracked success rate to the curriculum leader
+        if len(self._success_buffer) > 0:
+            sr = sum(self._success_buffer) / len(self._success_buffer)
+            self.curriculum.override_success_rate(sr, len(self._success_buffer))
 
         # ── Adaptive clip range decay ─────────────────────────────────────
         if self._clip_warmup_remaining > 0:
@@ -203,7 +238,9 @@ class CurriculumCallback(BaseCallback):
                 f"[{ch.name}]"
                 f"  sr={self.curriculum.rolling_success_rate:.1%}"
                 f" (need {ch.promotion_threshold:.0%})"
+                f" | buf={len(self._success_buffer)}/{self.SUCCESS_WINDOW}"
                 f" | steps={self.curriculum.total_steps:,}"
+                f" ch_steps={self.curriculum.chapter_steps:,}"
                 f"{std_str}"
                 f"  ent={self.model.ent_coef:.5f}"
                 f"  ⏱ {hours:.1f}h"
@@ -212,8 +249,7 @@ class CurriculumCallback(BaseCallback):
         # ── Final chapter completion check ────────────────────────────────
         if self.curriculum.is_final_chapter:
             target = self.curriculum.current_chapter.promotion_threshold
-            buffer_len = getattr(self.curriculum, "_forced_success_buffer_len", len(self.curriculum._success_history))
-            if (buffer_len >= self.curriculum.ROLLING_WINDOW
+            if (len(self._success_buffer) >= self.SUCCESS_WINDOW
                     and self.curriculum.rolling_success_rate >= target):
                 print(f"\n🏆 CURRICULUM COMPLETE! "
                       f"Final success rate: {self.curriculum.rolling_success_rate:.1%}")
@@ -261,6 +297,9 @@ class CurriculumCallback(BaseCallback):
             self.training_env.env_method("set_chapter_idx", new_idx)
             print(f"  📡 Chapter {new_idx} broadcast to "
                   f"{self.training_env.num_envs} subprocesses")
+
+            # Clear our local success buffer so the new chapter starts fresh
+            self._success_buffer.clear()
 
         # ── Periodic checkpoint ───────────────────────────────────────────
         if (self.num_timesteps - self._last_save_step) >= self.save_every:
