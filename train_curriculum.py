@@ -148,7 +148,7 @@ class CurriculumCallback(BaseCallback):
         # systems agree and promotion uses real episode outcomes.
         if hasattr(self.model, "ep_success_buffer") and len(self.model.ep_success_buffer) > 0:
             real_sr = float(np.mean(self.model.ep_success_buffer))
-            self.curriculum.override_success_rate(real_sr)
+            self.curriculum.override_success_rate(real_sr, len(self.model.ep_success_buffer))
 
         # ── Adaptive clip range decay ─────────────────────────────────────
         if self._clip_warmup_remaining > 0:
@@ -212,7 +212,8 @@ class CurriculumCallback(BaseCallback):
         # ── Final chapter completion check ────────────────────────────────
         if self.curriculum.is_final_chapter:
             target = self.curriculum.current_chapter.promotion_threshold
-            if (len(self.curriculum._success_history) >= self.curriculum.ROLLING_WINDOW
+            buffer_len = getattr(self.curriculum, "_forced_success_buffer_len", len(self.curriculum._success_history))
+            if (buffer_len >= self.curriculum.ROLLING_WINDOW
                     and self.curriculum.rolling_success_rate >= target):
                 print(f"\n🏆 CURRICULUM COMPLETE! "
                       f"Final success rate: {self.curriculum.rolling_success_rate:.1%}")

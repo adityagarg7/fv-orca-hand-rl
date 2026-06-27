@@ -189,9 +189,10 @@ class CurriculumManager:
         self._chapter_episodes += 1
         self._total_episodes += 1
 
-    def override_success_rate(self, sr: float):
+    def override_success_rate(self, sr: float, buffer_len: int = 0):
         """Force the rolling success rate to exactly match an external value (SB3 buffer)."""
         self._forced_success_rate = sr
+        self._forced_success_buffer_len = buffer_len
 
     def record_steps(self, n_steps: int):
         """Record training steps taken."""
@@ -204,7 +205,8 @@ class CurriculumManager:
             return False
 
         # Must have enough data
-        if len(self._success_history) < self.ROLLING_WINDOW:
+        current_len = getattr(self, "_forced_success_buffer_len", len(self._success_history))
+        if current_len < self.ROLLING_WINDOW:
             return False
 
         # Must have trained long enough
