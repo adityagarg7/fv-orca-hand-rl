@@ -38,15 +38,16 @@ class ChapterConfig:
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
-# ── 8-chapter progressive difficulty (v7 — Workstation Edition) ─────────────
-# Design principles:
-#   1. Overlapping bands (~10° overlap) to prevent distribution shift.
-#   2. 80% promotion threshold on a 200-episode rolling window.
-#   3. Episode lengths scaled to the task complexity of each chapter.
-#   4. Batch sizes scaled to 64-env rollout (64 * 4096 = 262k steps/rollout).
-#   5. Ch2 split into 3 sub-chapters; Ch3 split into 2 — eliminates the
-#      phase-transition cliff between nudging (Ch1) and rolling (Ch3+).
-#   6. LR schedule: warm (3e-4) for early chapters, cool (1e-4) for late.
+# ── 8-chapter progressive difficulty (v8 — Production Fix) ──────────────────
+# Changes from v7:
+#   1. Overlaps narrowed from 10–13° to 2–5° to eliminate the mathematical
+#      success-rate ceiling caused by the agent coasting on already-mastered
+#      angles.  (Ch2a's old 40–62° range meant 45% of episodes were easy.)
+#   2. Success bonuses increased 5–10× so solving dominates per-step farming.
+#      At v7 weights, farming earned 377pts/episode vs 45pts for solving.
+#   3. Episode lengths shortened to reduce the farming window.  Shorter episodes
+#      = less farming revenue = success bonus is relatively more valuable.
+#   4. LR schedule unchanged (3e-4 early, 1e-4 late).
 CHAPTERS = [
     # ── Chapter 1: Small tilt  (16°–50°) ──────────────────────────────
     # Cube nearly upright. Task: learn basic finger contact + nudging.
@@ -55,70 +56,77 @@ CHAPTERS = [
         angle_min_deg=16,   angle_max_deg=50,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.003,
-        max_episode_steps=300, success_bonus=100.0,
+        max_episode_steps=200, success_bonus=500.0,
     ),
-    # ── Chapter 2a: Moderate tilt  (40°–60°) ────────────────────────
+    # ── Chapter 2a: Moderate tilt  (48°–62°) ────────────────────────
     # Bridge chapter: nudging transitions to controlled pushing.
+    # Overlap with Ch1: only 2° (48–50°), down from 10° in v7.
     ChapterConfig(
         name="ch2a_moderate_tilt",
-        angle_min_deg=40,   angle_max_deg=62,
+        angle_min_deg=48,   angle_max_deg=62,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
-        max_episode_steps=350, success_bonus=120.0,
+        max_episode_steps=300, success_bonus=600.0,
     ),
-    # ── Chapter 2b: Medium tilt  (55°–78°) ──────────────────────────
+    # ── Chapter 2b: Medium tilt  (58°–78°) ──────────────────────────
     # Agent must apply lateral force to initiate rolling motion.
+    # Overlap with Ch2a: 4° (58–62°).
     ChapterConfig(
         name="ch2b_medium_tilt",
-        angle_min_deg=55,   angle_max_deg=78,
+        angle_min_deg=58,   angle_max_deg=78,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
-        max_episode_steps=400, success_bonus=140.0,
+        max_episode_steps=350, success_bonus=700.0,
     ),
-    # ── Chapter 2c: Steep tilt  (68°–93°) ───────────────────────────
+    # ── Chapter 2c: Steep tilt  (73°–93°) ───────────────────────────
     # Full rolling skill required. Cube approaching the side-flat position.
+    # Overlap with Ch2b: 5° (73–78°).
     ChapterConfig(
         name="ch2c_steep_tilt",
-        angle_min_deg=68,   angle_max_deg=93,
+        angle_min_deg=73,   angle_max_deg=93,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.0015,
-        max_episode_steps=450, success_bonus=160.0,
+        max_episode_steps=400, success_bonus=800.0,
     ),
-    # ── Chapter 3a: Side roll  (82°–115°) ───────────────────────────
+    # ── Chapter 3a: Side roll  (88°–115°) ───────────────────────────
     # Cube mostly on its side. Coordinated multi-finger rolling.
+    # Overlap with Ch2c: 5° (88–93°).
     ChapterConfig(
         name="ch3a_side_roll",
-        angle_min_deg=82,   angle_max_deg=115,
+        angle_min_deg=88,   angle_max_deg=115,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
-        max_episode_steps=500, success_bonus=200.0,
+        max_episode_steps=450, success_bonus=1000.0,
     ),
-    # ── Chapter 3b: Deep roll  (105°–135°) ──────────────────────────
+    # ── Chapter 3b: Deep roll  (110°–135°) ──────────────────────────
     # Agent must push the cube past the equator (>90°). Hardest transition.
+    # Overlap with Ch3a: 5° (110–115°).
     ChapterConfig(
         name="ch3b_deep_roll",
-        angle_min_deg=105,  angle_max_deg=135,
+        angle_min_deg=110,  angle_max_deg=135,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
-        max_episode_steps=550, success_bonus=250.0,
+        max_episode_steps=500, success_bonus=1200.0,
     ),
-    # ── Chapter 4: Near flip  (122°–163°) ───────────────────────────
+    # ── Chapter 4: Near flip  (130°–163°) ───────────────────────────
     # Cube nearly upside down. Agent must learn to re-catch at the apex.
+    # Overlap with Ch3b: 5° (130–135°).
     ChapterConfig(
         name="ch4_near_flip",
-        angle_min_deg=122,  angle_max_deg=163,
+        angle_min_deg=130,  angle_max_deg=163,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0008,
-        max_episode_steps=650, success_bonus=300.0,
+        max_episode_steps=600, success_bonus=1500.0,
     ),
-    # ── Chapter 5: Full flip  (150°–180°) ───────────────────────────
+    # ── Chapter 5: Full flip  (158°–180°) ───────────────────────────
     # Full 180° reorientation. Graduation chapter.
+    # Overlap with Ch4: 5° (158–163°).
     ChapterConfig(
         name="ch5_full_flip",
-        angle_min_deg=150,  angle_max_deg=180,
+        angle_min_deg=158,  angle_max_deg=180,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0005,
-        max_episode_steps=800, success_bonus=400.0,
+        max_episode_steps=750, success_bonus=2000.0,
     ),
 ]
 

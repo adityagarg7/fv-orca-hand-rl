@@ -116,7 +116,7 @@ class CurriculumCallback(BaseCallback):
     # ── Adaptive entropy (AE-PPO) ─────────────────────────────────────────────
     STD_HIGH        = 1.05         # collapse ent_coef if std exceeds this
     STD_LOW         = 0.75         # boost  ent_coef if std falls below this
-    ENT_COEF_MIN    = 0.00005      # entropy floor (prevents full collapse)
+    ENT_COEF_MIN    = 0.005        # entropy floor (raised 100×: prevents exploration collapse)
     ENT_COEF_MAX    = 0.02         # entropy ceiling (prevents jitter)
     ENT_ADJUST_RATE = 0.92         # multiplicative adjustment per log interval
 
@@ -465,7 +465,9 @@ def main():
     if args.subproc:
         print(f"  🚀 Spawning {args.n_envs} subprocesses (SubprocVecEnv)…")
         env_fns = [make_env(start_chapter) for _ in range(args.n_envs)]
-        env = SubprocVecEnv(env_fns, start_method="forkserver")
+        # forkserver is not available on Windows; use spawn instead.
+        start_method = "spawn" if sys.platform == "win32" else "forkserver"
+        env = SubprocVecEnv(env_fns, start_method=start_method)
         print(f"  ✅ {args.n_envs} environments ready.\n")
     else:
         print(f"  🔄 DummyVecEnv (single-process debugging mode)…")

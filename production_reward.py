@@ -48,7 +48,7 @@ class ProductionRewardWrapper(gym.Wrapper):
         align_weight: float = 5.0,
         align_sigma: float = 0.3,       # radians
         # --- Rotation progress (Dactyl-style delta) ---
-        progress_weight: float = 10.0,
+        progress_weight: float = 50.0,    # 5× increase: rotation signal must dominate alignment farming
         # --- Position keeping (keep cube centred) ---
         pos_weight: float = 0.5,
         pos_sigma: float = 0.05,        # metres (relaxed from 0.03 for manipulation room)
@@ -56,7 +56,7 @@ class ProductionRewardWrapper(gym.Wrapper):
         finger_weight: float = 0.3,
         finger_sigma: float = 0.02,     # metres
         # --- Success bonus (immediate, stability-scaled) ---
-        success_bonus: float = 100.0,
+        success_bonus: float = 500.0,     # 5× increase: must dominate per-step farming rewards
         stability_floor: float = 0.3,   # min multiplier for a flick
         stability_sigma: float = 0.5,   # velocity scale for smooth bonus
         # --- Alive bonus ---
@@ -160,33 +160,30 @@ class ProductionRewardWrapper(gym.Wrapper):
 
         # ---- 5. Immediate success with stability multiplier ----
         #
-        # No hold timer, no velocity gate.  Success is granted the INSTANT
-        # is_success is True.  But the bonus is scaled:
-        #   - Flick-and-pray (high velocity)  → 30  points (floor=0.3)
-        #   - Smooth stable hold (low velocity) → 100 points (full bonus)
+        # Success is granted the INSTANT is_success is True, scaled by
+        # stability (low velocity → higher bonus).  Episode TERMINATES on
+        # success so the agent cannot farm alignment rewards beyond solving.
         #
-        # This gives the agent a clear gradient toward stability without
-        # creating an impossible exploration barrier.
+        # palm_rest_factor REMOVED (v2): it penalised the cube displacement
+        # that is physically required during rotation, reducing the effective
+        # bonus by 50–85% and making farming more profitable than solving.
         #
         linear_vel = np.linalg.norm(info["cube_qvel"][:3])
         angular_vel = np.linalg.norm(info["cube_qvel"][3:6])
         total_vel = linear_vel + angular_vel
 
         r_success = 0.0
+        terminated = False
         if info["is_success"]:
             stability = self.stability_floor + (1.0 - self.stability_floor) * np.exp(
                 -total_vel / self.stability_sigma
             )
-            # Palm rest factor: must be resting on the palm (pos_error ~ 0) to get the bonus.
-            # If the cube is lifted or drifts away, this exponentially drops to 0.
-            palm_rest_factor = np.exp(-pos_error / self.pos_sigma)
-            
-            r_success = self.success_bonus * stability * palm_rest_factor
+            r_success = self.success_bonus * stability
             self._total_successes += 1
+            terminated = True   # End episode on success — critical for value function
 
-        # Termination: end episode on drop only. Do NOT terminate on success —
-        # let the agent keep accumulating reward for maintaining the orientation.
-        terminated = info["dropped"]
+        if info["dropped"]:
+            terminated = True
 
         # ---- 6. Alive bonus ----
         r_alive = self.alive_bonus if not info["dropped"] else 0.0
