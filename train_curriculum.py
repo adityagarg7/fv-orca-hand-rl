@@ -153,6 +153,11 @@ class CurriculumCallback(BaseCallback):
         self._reward_accum   = {}   # for rolling reward component averages
         # Our own success tracking buffer (main process, immune to SubprocVecEnv isolation)
         self._success_buffer: deque[bool] = deque(maxlen=self.SUCCESS_WINDOW)
+        # v9: Sustained promotion gate — must pass threshold for N consecutive
+        # log-interval checks.  Eliminates false promotions from statistical
+        # noise (the v8 bug where Ch2a promoted at ~72% true rate).
+        self.PROMOTE_SUSTAIN_COUNT = 3
+        self._promote_streak = 0
 
     # ── Per-step logic ───────────────────────────────────────────────────────
 
@@ -246,60 +251,82 @@ class CurriculumCallback(BaseCallback):
                 f"  ⏱ {hours:.1f}h"
             )
 
-        # ── Final chapter completion check ────────────────────────────────
-        if self.curriculum.is_final_chapter:
-            target = self.curriculum.current_chapter.promotion_threshold
-            if (len(self._success_buffer) >= self.SUCCESS_WINDOW
-                    and self.curriculum.rolling_success_rate >= target):
-                print(f"\n🏆 CURRICULUM COMPLETE! "
-                      f"Final success rate: {self.curriculum.rolling_success_rate:.1%}")
-                if wandb.run is not None:
-                    wandb.log({
-                        "curriculum/completed": 1,
-                        "curriculum/final_success_rate": self.curriculum.rolling_success_rate,
-                    }, step=self.num_timesteps)
-                self._save_checkpoint("final")
-                return False   # stop training
+        # ── Promotion & completion checks (LOG INTERVAL ONLY) ──────────────
+        # v9 FIX: Promotion is checked ONLY at log intervals, NOT every step.
+        # In v8, the check ran 4096× per log interval, giving thousands of
+        # chances to hit a statistical spike.  This caused false promotions
+        # at ~72-75% true rate.  Now we check once per log interval and
+        # require PROMOTE_SUSTAIN_COUNT (3) consecutive passes.
+        if self.n_calls % max(1, log_interval_steps) == 0:
 
-        # ── Auto-promotion (chapters 1–7) ─────────────────────────────────
-        if self.curriculum.should_promote():
-            if wandb.run is not None:
-                wandb.log({
-                    "curriculum/promotion_event":         1,
-                    "curriculum/promoted_from":           self.curriculum.current_chapter_idx,
-                    "curriculum/promoted_at_step":        self.num_timesteps,
-                    "curriculum/success_rate_at_promotion": self.curriculum.rolling_success_rate,
-                }, step=self.num_timesteps)
+            # ── Final chapter completion check ────────────────────────────
+            if self.curriculum.is_final_chapter:
+                target = self.curriculum.current_chapter.promotion_threshold
+                if (len(self._success_buffer) >= self.SUCCESS_WINDOW
+                        and self.curriculum.rolling_success_rate >= target):
+                    self._promote_streak += 1
+                    if self._promote_streak >= self.PROMOTE_SUSTAIN_COUNT:
+                        print(f"\n🏆 CURRICULUM COMPLETE! "
+                              f"Final success rate: {self.curriculum.rolling_success_rate:.1%}"
+                              f" (sustained {self.PROMOTE_SUSTAIN_COUNT} checks)")
+                        if wandb.run is not None:
+                            wandb.log({
+                                "curriculum/completed": 1,
+                                "curriculum/final_success_rate": self.curriculum.rolling_success_rate,
+                            }, step=self.num_timesteps)
+                        self._save_checkpoint("final")
+                        return False   # stop training
+                else:
+                    self._promote_streak = 0
 
-            self.curriculum.promote()
-            self._save_checkpoint("promotion")
+            # ── Auto-promotion (chapters 1–7) ─────────────────────────────
+            elif self.curriculum.should_promote():
+                self._promote_streak += 1
+                sr = self.curriculum.rolling_success_rate
+                print(f"  🔒 Promotion gate: {self._promote_streak}/{self.PROMOTE_SUSTAIN_COUNT}"
+                      f" consecutive passes (sr={sr:.1%})")
 
-            # ── Clip-range warm restart ───────────────────────────────────
-            self._clip_warmup_remaining = self.CLIP_WARMUP_STEPS
-            self.model.clip_range = lambda _: self.CLIP_RANGE_HIGH
-            print(f"  🔧 Clip warm-restart: {self.CLIP_RANGE_HIGH} → "
-                  f"{self.CLIP_RANGE_LOW} over {self.CLIP_WARMUP_STEPS:,} steps")
+                if self._promote_streak >= self.PROMOTE_SUSTAIN_COUNT:
+                    if wandb.run is not None:
+                        wandb.log({
+                            "curriculum/promotion_event":         1,
+                            "curriculum/promoted_from":           self.curriculum.current_chapter_idx,
+                            "curriculum/promoted_at_step":        self.num_timesteps,
+                            "curriculum/success_rate_at_promotion": sr,
+                        }, step=self.num_timesteps)
 
-            # ── Apply new chapter's PPO hyperparameters ───────────────────
-            new_ch = self.curriculum.current_chapter
-            self.model.learning_rate = new_ch.lr
-            self.model.n_epochs      = new_ch.n_epochs
-            self.model.batch_size    = new_ch.batch_size
-            self.model.ent_coef      = new_ch.ent_coef
-            print(f"  ⚙️  PPO hyperparams → lr={new_ch.lr}  "
-                  f"epochs={new_ch.n_epochs}  batch={new_ch.batch_size}  "
-                  f"ent_coef={new_ch.ent_coef}")
+                    self.curriculum.promote()
+                    self._save_checkpoint("promotion")
+                    self._promote_streak = 0  # reset for next chapter
 
-            # ── Broadcast chapter change to all subprocess envs ───────────
-            # SubprocVecEnv: each env lives in its own process — we push the
-            # new chapter index via env_method so spawn angles are correct.
-            new_idx = self.curriculum.current_chapter_idx
-            self.training_env.env_method("set_chapter_idx", new_idx)
-            print(f"  📡 Chapter {new_idx} broadcast to "
-                  f"{self.training_env.num_envs} subprocesses")
+                    # ── Clip-range warm restart ───────────────────────────
+                    self._clip_warmup_remaining = self.CLIP_WARMUP_STEPS
+                    self.model.clip_range = lambda _: self.CLIP_RANGE_HIGH
+                    print(f"  🔧 Clip warm-restart: {self.CLIP_RANGE_HIGH} → "
+                          f"{self.CLIP_RANGE_LOW} over {self.CLIP_WARMUP_STEPS:,} steps")
 
-            # Clear our local success buffer so the new chapter starts fresh
-            self._success_buffer.clear()
+                    # ── Apply new chapter's PPO hyperparameters ───────────
+                    new_ch = self.curriculum.current_chapter
+                    self.model.learning_rate = new_ch.lr
+                    self.model.n_epochs      = new_ch.n_epochs
+                    self.model.batch_size    = new_ch.batch_size
+                    self.model.ent_coef      = new_ch.ent_coef
+                    print(f"  ⚙️  PPO hyperparams → lr={new_ch.lr}  "
+                          f"epochs={new_ch.n_epochs}  batch={new_ch.batch_size}  "
+                          f"ent_coef={new_ch.ent_coef}")
+
+                    # ── Broadcast chapter change to all subprocess envs ───
+                    new_idx = self.curriculum.current_chapter_idx
+                    self.training_env.env_method("set_chapter_idx", new_idx)
+                    print(f"  📡 Chapter {new_idx} broadcast to "
+                          f"{self.training_env.num_envs} subprocesses")
+
+                    # Clear our local success buffer for fresh start
+                    self._success_buffer.clear()
+
+            else:
+                # Below threshold — reset streak
+                self._promote_streak = 0
 
         # ── Periodic checkpoint ───────────────────────────────────────────
         if (self.num_timesteps - self._last_save_step) >= self.save_every:

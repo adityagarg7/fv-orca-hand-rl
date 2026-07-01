@@ -38,16 +38,20 @@ class ChapterConfig:
     success_bonus: float = 100.0  # can increase for harder chapters
 
 
-# ── 8-chapter progressive difficulty (v8 — Production Fix) ──────────────────
-# Changes from v7:
-#   1. Overlaps narrowed from 10–13° to 2–5° to eliminate the mathematical
-#      success-rate ceiling caused by the agent coasting on already-mastered
-#      angles.  (Ch2a's old 40–62° range meant 45% of episodes were easy.)
-#   2. Success bonuses increased 5–10× so solving dominates per-step farming.
-#      At v7 weights, farming earned 377pts/episode vs 45pts for solving.
-#   3. Episode lengths shortened to reduce the farming window.  Shorter episodes
-#      = less farming revenue = success bonus is relatively more valuable.
-#   4. LR schedule unchanged (3e-4 early, 1e-4 late).
+# ── 8-chapter progressive difficulty (v9 — Production Fix) ──────────────────
+# Changes from v8:
+#   1. Overlaps widened from 2–5° to 8° (Dactyl/HORA standard: ~30% familiar
+#      angles at each transition).  v8's 2–5° caused severe cold-start drops
+#      that wasted millions of steps re-establishing a baseline.
+#   2. Ch2b learning rate halved (3e-4 → 1.5e-4) based on diagnostic evidence:
+#      clip_fraction was 28% (should be <20%), meaning the optimizer was being
+#      throttled by PPO's conservative constraint.
+#   3. Promotion logic moved to log-interval-only checks with 3-consecutive
+#      sustained gate (see train_curriculum.py).
+# Retained from v8:
+#   - Success bonuses 5–10× so solving dominates farming
+#   - Episode lengths scaled per chapter
+#   - 80% promotion threshold for ALL chapters (no lowering)
 CHAPTERS = [
     # ── Chapter 1: Small tilt  (16°–50°) ──────────────────────────────
     # Cube nearly upright. Task: learn basic finger contact + nudging.
@@ -58,72 +62,73 @@ CHAPTERS = [
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.003,
         max_episode_steps=200, success_bonus=500.0,
     ),
-    # ── Chapter 2a: Moderate tilt  (48°–62°) ────────────────────────
+    # ── Chapter 2a: Moderate tilt  (42°–62°) ────────────────────────
     # Bridge chapter: nudging transitions to controlled pushing.
-    # Overlap with Ch1: only 2° (48–50°), down from 10° in v7.
+    # Overlap with Ch1: 8° (42–50°) → 40% of band is familiar.
     ChapterConfig(
         name="ch2a_moderate_tilt",
-        angle_min_deg=48,   angle_max_deg=62,
+        angle_min_deg=42,   angle_max_deg=62,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
         max_episode_steps=300, success_bonus=600.0,
     ),
-    # ── Chapter 2b: Medium tilt  (58°–78°) ──────────────────────────
+    # ── Chapter 2b: Medium tilt  (54°–78°) ──────────────────────────
     # Agent must apply lateral force to initiate rolling motion.
-    # Overlap with Ch2a: 4° (58–62°).
+    # Overlap with Ch2a: 8° (54–62°) → 33% of band is familiar.
+    # LR reduced to 1.5e-4 (clip_fraction was 28% at 3e-4).
     ChapterConfig(
         name="ch2b_medium_tilt",
-        angle_min_deg=58,   angle_max_deg=78,
+        angle_min_deg=54,   angle_max_deg=78,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
+        lr=1.5e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
         max_episode_steps=350, success_bonus=700.0,
     ),
-    # ── Chapter 2c: Steep tilt  (73°–93°) ───────────────────────────
+    # ── Chapter 2c: Steep tilt  (70°–93°) ───────────────────────────
     # Full rolling skill required. Cube approaching the side-flat position.
-    # Overlap with Ch2b: 5° (73–78°).
+    # Overlap with Ch2b: 8° (70–78°) → 35% of band is familiar.
     ChapterConfig(
         name="ch2c_steep_tilt",
-        angle_min_deg=73,   angle_max_deg=93,
+        angle_min_deg=70,   angle_max_deg=93,
         promotion_threshold=0.80,
-        lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.0015,
+        lr=1.5e-4, n_epochs=10, batch_size=1024, ent_coef=0.0015,
         max_episode_steps=400, success_bonus=800.0,
     ),
-    # ── Chapter 3a: Side roll  (88°–115°) ───────────────────────────
+    # ── Chapter 3a: Side roll  (85°–115°) ───────────────────────────
     # Cube mostly on its side. Coordinated multi-finger rolling.
-    # Overlap with Ch2c: 5° (88–93°).
+    # Overlap with Ch2c: 8° (85–93°) → 27% of band is familiar.
     ChapterConfig(
         name="ch3a_side_roll",
-        angle_min_deg=88,   angle_max_deg=115,
+        angle_min_deg=85,   angle_max_deg=115,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
         max_episode_steps=450, success_bonus=1000.0,
     ),
-    # ── Chapter 3b: Deep roll  (110°–135°) ──────────────────────────
+    # ── Chapter 3b: Deep roll  (107°–135°) ──────────────────────────
     # Agent must push the cube past the equator (>90°). Hardest transition.
-    # Overlap with Ch3a: 5° (110–115°).
+    # Overlap with Ch3a: 8° (107–115°) → 29% of band is familiar.
     ChapterConfig(
         name="ch3b_deep_roll",
-        angle_min_deg=110,  angle_max_deg=135,
+        angle_min_deg=107,  angle_max_deg=135,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
         max_episode_steps=500, success_bonus=1200.0,
     ),
-    # ── Chapter 4: Near flip  (130°–163°) ───────────────────────────
+    # ── Chapter 4: Near flip  (127°–163°) ───────────────────────────
     # Cube nearly upside down. Agent must learn to re-catch at the apex.
-    # Overlap with Ch3b: 5° (130–135°).
+    # Overlap with Ch3b: 8° (127–135°) → 22% of band is familiar.
     ChapterConfig(
         name="ch4_near_flip",
-        angle_min_deg=130,  angle_max_deg=163,
+        angle_min_deg=127,  angle_max_deg=163,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0008,
         max_episode_steps=600, success_bonus=1500.0,
     ),
-    # ── Chapter 5: Full flip  (158°–180°) ───────────────────────────
+    # ── Chapter 5: Full flip  (155°–180°) ───────────────────────────
     # Full 180° reorientation. Graduation chapter.
-    # Overlap with Ch4: 5° (158–163°).
+    # Overlap with Ch4: 8° (155–163°) → 32% of band is familiar.
     ChapterConfig(
         name="ch5_full_flip",
-        angle_min_deg=158,  angle_max_deg=180,
+        angle_min_deg=155,  angle_max_deg=180,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0005,
         max_episode_steps=750, success_bonus=2000.0,
