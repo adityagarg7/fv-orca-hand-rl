@@ -1,0 +1,66 @@
+{
+  "chapter_idx": 7,
+  "success_history": [],
+  "chapter_steps": 393216,
+  "total_steps": 263345984,
+  "chapter_episodes": 0,
+  "total_episodes": 0,
+  "promotion_log": [
+    {
+      "from_chapter": "ch1_small_tilt",
+      "from_idx": 0,
+      "success_rate": 0.86,
+      "chapter_steps": 1179648,
+      "total_steps": 1179648,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch2a_moderate_tilt",
+      "from_idx": 1,
+      "success_rate": 0.82,
+      "chapter_steps": 32505856,
+      "total_steps": 33685504,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch2b_medium_tilt",
+      "from_idx": 2,
+      "success_rate": 0.8,
+      "chapter_steps": 34471936,
+      "total_steps": 68157440,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch2c_steep_tilt",
+      "from_idx": 3,
+      "success_rate": 0.815,
+      "chapter_steps": 23986176,
+      "total_steps": 92143616,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch3a_side_roll",
+      "from_idx": 4,
+      "success_rate": 0.805,
+      "chapter_steps": 28750432,
+      "total_steps": 120894048,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch3b_deep_roll",
+      "from_idx": 5,
+      "success_rate": 0.835,
+      "chapter_steps": 78205216,
+      "total_steps": 199099264,
+      "total_episodes": 0
+    },
+    {
+      "from_chapter": "ch4_near_flip",
+      "from_idx": 6,
+      "success_rate": 0.81,
+      "chapter_steps": 63853504,
+      "total_steps": 262952768,
+      "total_episodes": 0
+    }
+  ]
+}

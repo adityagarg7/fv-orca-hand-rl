@@ -18,16 +18,30 @@ tensorboard = ">=2.14"
 wandb = ">=0.16"
 
 [tasks]
-# One-time: clone orca_sim as a sibling folder and install it editable. Kept
-# outside this repo so it is never committed. Safe to re-run (clone is skipped
-# if the folder already exists).
+# ── One-time setup ────────────────────────────────────────────────────────────
+# Clone orca_sim as a sibling folder and install it editable.  Safe to re-run.
 setup-orca = "git clone https://github.com/orcahand/orca_sim.git ../orca_sim || true && pip install -e ../orca_sim"
 
-# Convenience alias for the one-time W&B login (stores the key in ~/.netrc, not
-# in this project). You can also just run `wandb login` directly.
+# W&B login (stores API key in ~/.netrc, never committed to Git).
 login = "wandb login"
 
-# Training shortcuts. Extra flags pass through, e.g. `pixi run train --timesteps 20000000 --upload-model`.
+# ── Training (legacy single-phase) ───────────────────────────────────────────
 train  = "python train.py"
 smoke  = "python train.py --timesteps 20000 --run-name smoke-test"
+
+# ── Curriculum training (v7 — Workstation) ───────────────────────────────────
+# Primary: 64 envs, SubprocVecEnv, CUDA GPU, 150M steps.
+# Expected wall time: 6–10 hours on a 12-core workstation with RTX GPU.
+curriculum = "python train_curriculum.py --n-envs 64 --device cuda --subproc --timesteps 150_000_000 --save-dir ./checkpoints --upload-model"
+
+# CPU-only fallback (no GPU): 48 envs, SubprocVecEnv, 100M steps.
+curriculum-cpu = "python train_curriculum.py --n-envs 48 --device cpu --subproc --timesteps 100_000_000 --save-dir ./checkpoints"
+
+# Quick sanity check (2 envs, DummyVecEnv, 50k steps — no GPU needed).
+curriculum-smoke = "python train_curriculum.py --n-envs 2 --no-subproc --device cpu --timesteps 50000 --save-dir ./checkpoints_smoke --run-name smoke-curriculum"
+
+# Resume from last checkpoint (same flags as curriculum, auto-resumes).
+curriculum-resume = "python train_curriculum.py --n-envs 64 --device cuda --subproc --timesteps 150_000_000 --save-dir ./checkpoints --upload-model"
+
+# ── Inference / rendering ─────────────────────────────────────────────────────
 render = "python render_policy.py"

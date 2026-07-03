@@ -1,15 +1,4 @@
-# Core RL + experiment-tracking stack.
-#
-# Local development uses pixi (see pixi.toml / README); this file is the
-# dependency list for Colab and any plain-pip install. Keep the two in sync.
-#
-# NOTE: orca_sim is NOT listed here. Its published package omits some MuJoCo
-# model assets, so a normal `pip install` produces a broken install. It must be
-# installed EDITABLE from a local clone instead (see README, "Getting started"):
-#     git clone https://github.com/orcahand/orca_sim.git
-#     pip install -e orca_sim
-stable-baselines3[extra]>=2.0
-mujoco>=3.1
-gymnasium>=0.29
-tensorboard>=2.14
-wandb>=0.16
+stable-baselines3==2.2.1
+wandb==0.16.4
+numpy==1.26.4
+gymnasium==0.29.1

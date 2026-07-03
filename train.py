@@ -1,3 +1,4 @@
+
 """
 PPO training for ORCA in-hand cube reorientation, logging to Weights & Biases.
 
@@ -46,7 +47,7 @@ def parse_args():
     p.add_argument("--project", default="orca-cube-reorientation", help="W&B project.")
     p.add_argument("--entity", default="fourvectors", help="W&B entity (team/org).")
     p.add_argument("--run-name", default=None)
-    p.add_argument("--save-freq", type=int, default=500_000, help="Local checkpoint cadence in timesteps.")
+    p.add_argument("--save-freq", type=int, default=100_000, help="Local checkpoint cadence in timesteps.")
     p.add_argument("--resume", default=None, help="Checkpoint .zip to resume from.")
     p.add_argument("--upload-model", action="store_true",
                    help="Upload the trained model to W&B. Off by default so test runs stay fast.")
@@ -58,9 +59,10 @@ def main():
 
     config = dict(
         algo="PPO", policy="MlpPolicy", env="OrcaHandRightCubeOrientation",
-        reward="ProductionRewardWrapper", total_timesteps=args.timesteps, n_envs=args.n_envs,
-        n_steps=2048, batch_size=256, n_epochs=10, learning_rate=3e-4,
-        gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
+        reward="ProductionRewardWrapper-v1.2", total_timesteps=args.timesteps, n_envs=args.n_envs,
+        n_steps=2048, batch_size=512, n_epochs=7, learning_rate=1e-4,
+        gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.001,
+        max_grad_norm=0.5,
     )
 
     run = wandb.init(project=args.project, entity=args.entity, name=args.run_name,
@@ -77,7 +79,8 @@ def main():
         model = PPO("MlpPolicy", env, verbose=1, device=args.device, tensorboard_log=tb_dir,
                     n_steps=config["n_steps"], batch_size=config["batch_size"], n_epochs=config["n_epochs"],
                     learning_rate=config["learning_rate"], gamma=config["gamma"],
-                    gae_lambda=config["gae_lambda"], clip_range=config["clip_range"], ent_coef=config["ent_coef"])
+                    gae_lambda=config["gae_lambda"], clip_range=config["clip_range"], ent_coef=config["ent_coef"],
+                    max_grad_norm=config["max_grad_norm"])
 
     # save_freq is per-env, so divide the total-step cadence by n_envs.
     checkpoints = CheckpointCallback(save_freq=max(1, args.save_freq // args.n_envs),
