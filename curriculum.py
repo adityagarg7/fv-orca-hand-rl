@@ -48,8 +48,13 @@ class ChapterConfig:
 #      throttled by PPO's conservative constraint.
 #   3. Promotion logic moved to log-interval-only checks with 3-consecutive
 #      sustained gate (see train_curriculum.py).
+# v11 changes:
+#   - Episode lengths +10: success needs a 10-step stable hold, so a goal
+#     reached in the final <10 steps must still be able to qualify.
+#   - success_bonus flattened to 100 for ALL chapters: under the v11 reward
+#     the per-step goal-hold stream is the real payout (holding dominates
+#     everything), and the bonus is only a one-time discovery spike.
 # Retained from v8:
-#   - Success bonuses 5–10× so solving dominates farming
 #   - Episode lengths scaled per chapter
 #   - 80% promotion threshold for ALL chapters (no lowering)
 CHAPTERS = [
@@ -60,7 +65,7 @@ CHAPTERS = [
         angle_min_deg=16,   angle_max_deg=50,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.003,
-        max_episode_steps=200, success_bonus=500.0,
+        max_episode_steps=210, success_bonus=100.0,
     ),
     # ── Chapter 2a: Moderate tilt  (42°–62°) ────────────────────────
     # Bridge chapter: nudging transitions to controlled pushing.
@@ -70,7 +75,7 @@ CHAPTERS = [
         angle_min_deg=42,   angle_max_deg=62,
         promotion_threshold=0.80,
         lr=3e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
-        max_episode_steps=300, success_bonus=600.0,
+        max_episode_steps=310, success_bonus=100.0,
     ),
     # ── Chapter 2b: Medium tilt  (54°–78°) ──────────────────────────
     # Agent must apply lateral force to initiate rolling motion.
@@ -81,7 +86,7 @@ CHAPTERS = [
         angle_min_deg=54,   angle_max_deg=78,
         promotion_threshold=0.80,
         lr=1.5e-4, n_epochs=10, batch_size=1024, ent_coef=0.002,
-        max_episode_steps=350, success_bonus=700.0,
+        max_episode_steps=360, success_bonus=100.0,
     ),
     # ── Chapter 2c: Steep tilt  (70°–93°) ───────────────────────────
     # Full rolling skill required. Cube approaching the side-flat position.
@@ -91,7 +96,7 @@ CHAPTERS = [
         angle_min_deg=70,   angle_max_deg=93,
         promotion_threshold=0.80,
         lr=1.5e-4, n_epochs=10, batch_size=1024, ent_coef=0.0015,
-        max_episode_steps=400, success_bonus=800.0,
+        max_episode_steps=410, success_bonus=100.0,
     ),
     # ── Chapter 3a: Side roll  (85°–115°) ───────────────────────────
     # Cube mostly on its side. Coordinated multi-finger rolling.
@@ -101,7 +106,7 @@ CHAPTERS = [
         angle_min_deg=85,   angle_max_deg=115,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
-        max_episode_steps=450, success_bonus=1000.0,
+        max_episode_steps=460, success_bonus=100.0,
     ),
     # ── Chapter 3b: Deep roll  (107°–135°) ──────────────────────────
     # Agent must push the cube past the equator (>90°). Hardest transition.
@@ -111,7 +116,7 @@ CHAPTERS = [
         angle_min_deg=107,  angle_max_deg=135,
         promotion_threshold=0.80,
         lr=2e-4, n_epochs=10, batch_size=1024, ent_coef=0.001,
-        max_episode_steps=500, success_bonus=1200.0,
+        max_episode_steps=510, success_bonus=100.0,
     ),
     # ── Chapter 4: Near flip  (127°–163°) ───────────────────────────
     # Cube nearly upside down. Agent must learn to re-catch at the apex.
@@ -121,7 +126,7 @@ CHAPTERS = [
         angle_min_deg=127,  angle_max_deg=163,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0008,
-        max_episode_steps=600, success_bonus=1500.0,
+        max_episode_steps=610, success_bonus=100.0,
     ),
     # ── Chapter 5: Full flip  (155°–180°) ───────────────────────────
     # Full 180° reorientation. Graduation chapter.
@@ -131,7 +136,7 @@ CHAPTERS = [
         angle_min_deg=155,  angle_max_deg=180,
         promotion_threshold=0.80,
         lr=1e-4, n_epochs=10, batch_size=1024, ent_coef=0.0005,
-        max_episode_steps=750, success_bonus=2000.0,
+        max_episode_steps=760, success_bonus=100.0,
     ),
 ]
 

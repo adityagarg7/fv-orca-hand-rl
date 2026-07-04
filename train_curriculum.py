@@ -61,7 +61,7 @@ from collections import deque
 
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 import wandb
@@ -80,13 +80,22 @@ from curriculum_wrapper import CurriculumWrapper
 # in the main process and is the sole authority for promotion decisions.
 # Chapter changes are broadcast to all followers via env_method().
 
-def make_env(start_chapter_idx: int = 0):
+def make_env(start_chapter_idx: int = 0, gamma: float = 0.99):
     """Factory closure: returns a callable that creates one full env stack."""
     def _init():
         cm = CurriculumManager()
         cm._chapter_idx = start_chapter_idx   # sync to current chapter
-        base = OrcaHandRightCubeOrientation(render_mode=None)
-        rewarded = ProductionRewardWrapper(base)
+        # v11 BUGFIX: the base env defaults to max_episode_steps=200 and
+        # truncates itself (task_envs.py _get_truncated), so the per-chapter
+        # lengths (300-750) configured in curriculum.py were NEVER applied —
+        # every v7-v10 episode was silently capped at 200 steps.  Disable base
+        # truncation entirely; CurriculumWrapper is the single source of
+        # episode length (it truncates at the current chapter's limit).
+        base = OrcaHandRightCubeOrientation(render_mode=None,
+                                            max_episode_steps=1_000_000)
+        # gamma must match PPO's gamma: the v11 reward uses exact
+        # potential-based shaping (gamma*Phi(s') - Phi(s)).
+        rewarded = ProductionRewardWrapper(base, gamma=gamma)
         env = CurriculumWrapper(rewarded, cm)
         # info_keywords=("is_success",) tells Monitor to forward is_success
         # into episode stats, which SB3 uses for rollout/success_rate logging.
@@ -430,11 +439,11 @@ def main():
     # ── W&B initialisation ───────────────────────────────────────────────────
     ch     = curriculum.current_chapter
     config = dict(
-        version           = "v7",
+        version           = "v11",
         algo              = "PPO",
         policy            = "MlpPolicy",
         env               = "OrcaHandRightCubeOrientation",
-        reward            = "ProductionRewardWrapper-v1.2-relaxed-pos",
+        reward            = "ProductionRewardWrapper-v11-finger-first",
         curriculum        = "8-chapter-finer-progressive",
         net_arch          = args.net_arch,
         n_envs            = args.n_envs,
@@ -458,7 +467,7 @@ def main():
         resumed           = resuming,
     )
 
-    run_name = args.run_name or f"v7-{ch.name}-{args.n_envs}envs"
+    run_name = args.run_name or f"v11-{ch.name}-{args.n_envs}envs"
     run = wandb.init(
         project = args.project,
         entity  = args.entity,
@@ -491,16 +500,33 @@ def main():
 
     if args.subproc:
         print(f"  🚀 Spawning {args.n_envs} subprocesses (SubprocVecEnv)…")
-        env_fns = [make_env(start_chapter) for _ in range(args.n_envs)]
+        env_fns = [make_env(start_chapter, args.gamma) for _ in range(args.n_envs)]
         # forkserver is not available on Windows; use spawn instead.
         start_method = "spawn" if sys.platform == "win32" else "forkserver"
         env = SubprocVecEnv(env_fns, start_method=start_method)
         print(f"  ✅ {args.n_envs} environments ready.\n")
     else:
         print(f"  🔄 DummyVecEnv (single-process debugging mode)…")
-        env_fns = [make_env(start_chapter) for _ in range(args.n_envs)]
+        env_fns = [make_env(start_chapter, args.gamma) for _ in range(args.n_envs)]
         env = DummyVecEnv(env_fns)
         print(f"  ✅ {args.n_envs} environments ready.\n")
+
+    # ── Reward normalisation (v11) ────────────────────────────────────────────
+    # v11 returns range from ~0 (failed episode) to ~2500 (long stable hold at
+    # Ch5).  Normalising rewards keeps the value-function loss well-scaled.
+    # norm_obs stays OFF: observations are already reasonably scaled, and
+    # enabling it would invalidate rendering/eval of saved policies without
+    # carrying the stats file around.  Monitor sits INSIDE the vec env, so
+    # W&B episode returns remain in raw (unnormalised) units.
+    vecnorm_path = os.path.join(args.save_dir, "vecnormalize.pkl")
+    if resuming and os.path.exists(vecnorm_path):
+        print(f"📂 Resuming VecNormalize stats from {vecnorm_path}")
+        env = VecNormalize.load(vecnorm_path, env)
+        env.training = True
+        env.norm_reward = True
+    else:
+        env = VecNormalize(env, norm_obs=False, norm_reward=True,
+                           clip_reward=10.0, gamma=args.gamma)
 
     # ── Create or load PPO model ──────────────────────────────────────────────
     if resuming and os.path.exists(model_path):
@@ -564,6 +590,7 @@ def main():
     # ── Final save ────────────────────────────────────────────────────────────
     final_path = os.path.join(args.save_dir, "ppo_curriculum_final.zip")
     model.save(final_path)
+    env.save(vecnorm_path)   # persist reward-normalisation stats for resume
     curriculum.save_state(curriculum_state_path)
     print(f"\n✅ Training complete!")
     print(f"   Final chapter    : {curriculum.current_chapter.name}")
