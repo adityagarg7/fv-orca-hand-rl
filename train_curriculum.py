@@ -350,9 +350,18 @@ class CurriculumCallback(BaseCallback):
         os.makedirs(self.save_dir, exist_ok=True)
         model_path      = os.path.join(self.save_dir, "latest_model.zip")
         curriculum_path = os.path.join(self.save_dir, "curriculum_state.json")
+        vecnorm_path    = os.path.join(self.save_dir, "vecnormalize.pkl")
 
         self.model.save(model_path)
         self.curriculum.save_state(curriculum_path)
+        # Persist the VecNormalize running reward stats alongside EVERY
+        # checkpoint — otherwise a resume after an interruption rebuilds them
+        # from scratch and injects a reward-scale discontinuity (bad PPO update
+        # right after resume). get_vec_normalize_env() returns None if PPO was
+        # built without a VecNormalize wrapper, so this is safe either way.
+        vecnorm_env = self.model.get_vec_normalize_env()
+        if vecnorm_env is not None:
+            vecnorm_env.save(vecnorm_path)
 
         # Versioned snapshot at every promotion
         if reason == "promotion":

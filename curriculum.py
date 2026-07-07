@@ -152,6 +152,9 @@ class CurriculumManager:
     MIN_STEPS_BEFORE_PROMOTE = 100_000   # min steps before allowing promotion
     # NO force-promotion. Agent stays on a chapter until it genuinely
     # hits the threshold. Promoting below the mark destroys learning.
+    # Stamped into curriculum_state.json; load_state refuses to resume across
+    # a version change (blocks silently resuming v9/v10 checkpoints).
+    STATE_VERSION = "v11"
 
     def __init__(self, chapters: list[ChapterConfig] | None = None):
         self.chapters = chapters or CHAPTERS
@@ -273,6 +276,7 @@ class CurriculumManager:
     def save_state(self, path: str):
         """Save full curriculum state to JSON for crash recovery."""
         state = {
+            "state_version": self.STATE_VERSION,
             "chapter_idx": self._chapter_idx,
             "success_history": list(self._success_history),
             "chapter_steps": self._chapter_steps,
@@ -286,11 +290,30 @@ class CurriculumManager:
             json.dump(state, f, indent=2)
 
     def load_state(self, path: str) -> bool:
-        """Load curriculum state from JSON. Returns True if loaded."""
+        """Load curriculum state from JSON. Returns True if loaded.
+
+        Refuses to resume across reward/curriculum versions.  A v9/v10
+        curriculum_state.json (no state_version, and chapter_idx up to 7 with
+        the wrist-exploit model saved alongside as latest_model.zip) is NOT a
+        valid v11 resume: it would silently continue the wrong policy at the
+        wrong chapter under an incompatible reward scale.  Hard-stop instead
+        of corrupting the run — use a fresh --save-dir or delete the stale
+        files deliberately.
+        """
         if not os.path.exists(path):
             return False
         with open(path) as f:
             state = json.load(f)
+        saved_version = state.get("state_version")
+        if saved_version != self.STATE_VERSION:
+            raise RuntimeError(
+                f"Refusing to resume from '{path}': it is "
+                f"'{saved_version or 'pre-v11 (v9/v10)'}' but this code is "
+                f"'{self.STATE_VERSION}'. Resuming would silently continue an "
+                f"incompatible policy/chapter. Point --save-dir at a fresh, empty "
+                f"directory (e.g. ./checkpoints_v11) or delete the stale "
+                f"curriculum_state.json + latest_model.zip + vecnormalize.pkl there."
+            )
         self._chapter_idx = state["chapter_idx"]
         self._success_history = deque(state["success_history"],
                                       maxlen=self.ROLLING_WINDOW)
