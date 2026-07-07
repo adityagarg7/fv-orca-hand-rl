@@ -13,11 +13,13 @@ PPO (Stable-Baselines3) + a shaped reward that prevents reward hacking.
 - `orca_sim` is installed **editable from a sibling clone (`../orca_sim`)** and is
   **not** in `pixi.lock`. `pixi install` alone won't make `import orca_sim` work —
   `pixi run setup-orca` is required (clones the sibling + `pip install -e`).
-- Defined tasks: `setup-orca`, `login`, `smoke`, `train`, `render`.
+- Defined tasks: `setup-orca`, `login`, `curriculum`, `curriculum-cpu`,
+  `curriculum-smoke`, `curriculum-resume`, `render`.
 
 ## Running training
-- `pixi run smoke` runs a 20k-step training and **creates a real W&B run** in the
-  `fourvectors` entity. It is not a free local test — it has an external side effect.
+- `pixi run curriculum` is the full 8-chapter run; `pixi run curriculum-smoke` is
+  the quick 50k-step sanity check. Either **creates a real W&B run** in the
+  `fourvectors` entity — not a free local test; it has an external side effect.
 - `--entity` defaults to `fourvectors`; no need to pass it.
 - `--upload-model` is **off by default** (keeps smoke runs fast); pass it only on
   runs whose model you want kept as a W&B artifact.
@@ -25,11 +27,13 @@ PPO (Stable-Baselines3) + a shaped reward that prevents reward hacking.
   rarely wanted and often slower.
 
 ## Key files
-- `production_reward.py` — the shaped reward (exponential alignment kernel,
-  terminal success bonus, stable-grasp hold, action regularisation). This is the
-  heart of the project and the anti-reward-hacking logic; reward changes are
-  high-stakes — change deliberately.
-- `train.py` — PPO entrypoint, all knobs are CLI flags.
+- `production_reward.py` — the v11 shaped reward (potential-based shaping,
+  palm-frame finger-attributed progress, real MuJoCo contact detection, and a
+  non-terminal goal-hold stream). This is the heart of the project and the
+  anti-reward-hacking logic; reward changes are high-stakes — change deliberately.
+- `train_curriculum.py` — the curriculum PPO entrypoint (8 chapters, auto-promotion,
+  adaptive entropy/clip, VecNormalize). All knobs are CLI flags. The old single-phase
+  `train.py` was removed — use this.
 - `render_policy.py` — load a model and watch it in the MuJoCo viewer
   (`pixi run render <model.zip>`; macOS needs `mjpython`).
 

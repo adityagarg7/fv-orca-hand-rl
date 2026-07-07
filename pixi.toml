@@ -25,13 +25,11 @@ setup-orca = "git clone https://github.com/orcahand/orca_sim.git ../orca_sim || 
 # W&B login (stores API key in ~/.netrc, never committed to Git).
 login = "wandb login"
 
-# ── Training (legacy single-phase) ───────────────────────────────────────────
-train  = "python train.py"
-smoke  = "python train.py --timesteps 20000 --run-name smoke-test"
-
-# ── Curriculum training (v7 — Workstation) ───────────────────────────────────
+# ── Curriculum training (v11 — Workstation) ──────────────────────────────────
 # Primary: 64 envs, SubprocVecEnv, CUDA GPU, 150M steps.
 # Expected wall time: 6–10 hours on a 12-core workstation with RTX GPU.
+# NOTE: MuJoCo physics is CPU-bound; the GPU only runs the small MLP, so all
+# 64 envs load the CPU regardless of --device. Lower --n-envs for thermal headroom.
 curriculum = "python train_curriculum.py --n-envs 64 --device cuda --subproc --timesteps 150_000_000 --save-dir ./checkpoints --upload-model"
 
 # CPU-only fallback (no GPU): 48 envs, SubprocVecEnv, 100M steps.
